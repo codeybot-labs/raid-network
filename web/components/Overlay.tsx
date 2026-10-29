@@ -1,5 +1,6 @@
 import { createSignal, For, onCleanup, Show } from 'solid-js';
-import type { DuelState, OverlayEvent } from '../../shared/types';
+import { DEFAULT_BOARD_SIZE, isBoardSize, type BoardSize, type DuelState, type OverlayEvent, type OverlaySettings } from '../../shared/types';
+import { api } from '../lib/api';
 import { liveSocket } from '../lib/api';
 import Avatar from './Avatar';
 import DuelBoard from './DuelBoard';
@@ -9,6 +10,11 @@ import './duel.css';
 export default function Overlay() {
   const channel = (location.pathname.split('/').filter(Boolean)[1] ?? '').toLowerCase();
   const debug = new URLSearchParams(location.search).has('debug');
+  // Board size: ?size=s|m|l wins; otherwise the streamer's saved default (one fetch on load, live 'size' pushes after).
+  const sizeParam = new URLSearchParams(location.search).get('size')?.toLowerCase().slice(0, 1);
+  const fixedSize = isBoardSize(sizeParam) ? sizeParam : null;
+  const [size, setSize] = createSignal<BoardSize>(fixedSize ?? DEFAULT_BOARD_SIZE);
+  if (!fixedSize) api<OverlaySettings>(`/api/overlay/${channel}/config`).then((r) => isBoardSize(r.size) && setSize(r.size)).catch(() => {});
   const [duel, setDuel] = createSignal<DuelState | null>(null);
   const [offset, setOffset] = createSignal(0);
   type Card = { id: number; kind: 'raid' | 'clip' | 'recap' | 'toast'; title: string; sub: string; who?: string; lines?: string[]; badge?: string };
@@ -58,14 +64,15 @@ export default function Overlay() {
       sub: ev.clip.quote ? `chat: “${ev.clip.quote}”` : 'chat went wild',
     });
     else if (ev.type === 'recap') card({ kind: 'recap', title: 'Stream recap', sub: '', lines: ev.lines, badge: '!recap' });
+    else if (ev.type === 'size') { if (!fixedSize && isBoardSize(ev.size)) setSize(ev.size); }
     else if (ev.type === 'toast') card({ kind: 'toast', title: ev.text, sub: 'Raid Network' });
   }, setUp);
   onCleanup(() => { stop(); stopDuel?.(); });
 
   return (
-    <div class="overlay-root">
+    <div class="overlay-root" data-board-size={size()}>
       <Show when={debug}><div class="ol-debug mono">overlay:{channel} · {up() ? 'connected' : 'connecting…'}</div></Show>
-      <Show when={duel()}>{(s) => <div class="ol-duel"><DuelBoard state={s()} offset={offset()} variant="overlay" /></div>}</Show>
+      <Show when={duel()}>{(s) => <div class="ol-duel"><div class={`ol-scale size-${size()}`} data-size={size()}><DuelBoard state={s()} offset={offset()} variant="overlay" /></div></div>}</Show>
       <div class="ol-cards">
         <For each={cards()}>{(c) => (
           <div class={`ol-card ${c.kind}`}>
@@ -101,6 +108,17 @@ export default function Overlay() {
         .ol-lines li::before { content: '▸ '; color: var(--red); }
         @keyframes drop { from { transform: translate(var(--tx, 0), -30px); opacity: 0; } }
         .ol-duel { --tx: -50%; }
+        /* Board sizes on a 1920x1080 canvas. CSS zoom re-lays out at the bigger size (text stays vector-crisp, no transform blur).
+           1v1 base is 800px wide, free-for-all/teams 920px. */
+        .ol-scale { zoom: var(--board-zoom, 1); }
+        .ol-scale.size-s { --board-zoom: 1; }
+        .ol-scale.size-m { --board-zoom: 1.5; }
+        .ol-scale.size-m:has(.board.ffa, .board.teams) { --board-zoom: 1.3; }
+        .ol-scale.size-l { --board-zoom: 2.1; }
+        .ol-scale.size-l:has(.board.ffa) { --board-zoom: 1.83; }
+        /* Team boards are taller (rosters + top pullers), so large stops at ~1470px to keep the bottom of the stream visible. */
+        .ol-scale.size-m:has(.board.teams) { --board-zoom: 1.25; }
+        .ol-scale.size-l:has(.board.teams) { --board-zoom: 1.6; }
       `}</style>
     </div>
   );

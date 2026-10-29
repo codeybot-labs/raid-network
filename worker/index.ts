@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { appUrl, duelStub, eventsubCallbackUrl, isDemo, overlayStub, type AppEnv, type Env } from './env';
-import { SIDE_KEYS, type ChannelRef, type ChatMessage, type DuelFormat, type DuelMode, type GrowthResponse, type Side, type Viewer } from '../shared/types';
+import { DEFAULT_BOARD_SIZE, isBoardSize, SIDE_KEYS, type BoardSize, type OverlaySettings, type ChannelRef, type ChatMessage, type DuelFormat, type DuelMode, type GrowthResponse, type Side, type Viewer } from '../shared/types';
 import { listStreams, streamReport } from './lib/growth';
 import { randomId } from './lib/crypto';
 import { DEMO_ME, allDemoLogins, demoFindStream, ensureDemoSeed } from './lib/demo';
@@ -316,6 +316,28 @@ app.post('/api/duels/:id/:action{accept|decline|start|cancel|simulate}', async (
 app.get('/api/duels/:id/ws', async (c) => {
   if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') return bad(c, 'expected websocket upgrade', 400);
   return duelStub(c.env, c.req.param('id')).fetch(c.req.raw);
+});
+
+// ----- OBS overlay settings (board size) -----
+const getBoardSize = async (env: Env, where: 'channel_id' | 'login', key: string): Promise<BoardSize> => {
+  const r = await env.DB.prepare(`SELECT board_size FROM overlay_settings WHERE ${where} = ? ORDER BY updated_at DESC LIMIT 1`).bind(key).first<{ board_size: string }>();
+  return isBoardSize(r?.board_size) ? r!.board_size : DEFAULT_BOARD_SIZE;
+};
+/** Public (the overlay page has no session): the saved default board size for a channel. One D1 read per overlay load. */
+app.get('/api/overlay/:channel/config', async (c) =>
+  c.json({ size: await getBoardSize(c.env, 'login', c.req.param('channel').toLowerCase()) } satisfies OverlaySettings));
+app.get('/api/overlay-settings', async (c) => {
+  const v = requireViewer(c);
+  return c.json({ size: await getBoardSize(c.env, 'channel_id', v.id) } satisfies OverlaySettings);
+});
+app.post('/api/overlay-settings', async (c) => {
+  const v = requireViewer(c);
+  const body = await c.req.json<Partial<OverlaySettings>>().catch(() => ({} as Partial<OverlaySettings>));
+  if (!isBoardSize(body.size)) return bad(c, "size must be 's', 'm' or 'l'", 400);
+  await c.env.DB.prepare(`INSERT INTO overlay_settings (channel_id, login, board_size, updated_at) VALUES (?1, ?2, ?3, ?4)
+    ON CONFLICT(channel_id) DO UPDATE SET login=?2, board_size=?3, updated_at=?4`).bind(v.id, v.login.toLowerCase(), body.size, Date.now()).run();
+  await overlayStub(c.env, v.login).sizeChanged(body.size);
+  return c.json({ size: body.size } satisfies OverlaySettings);
 });
 
 app.get('/api/overlay/:channel/ws', async (c) => {

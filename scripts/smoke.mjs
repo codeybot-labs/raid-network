@@ -457,6 +457,28 @@ const ob = (await api(`/api/demo/outbox?channel=${me}`)).messages;
 check(ob.filter((m) => ['ask', 'duel', 'recap', 'welcome'].includes(m.kind)).every((m) => m.text.length <= 500) && ob.filter((m) => ['ask', 'duel'].includes(m.kind)).every((m) => m.text.length <= 300),
   'AI chat lines logged to bot_messages and within Twitch limits');
 
+// ---------- OBS overlay board size (s / m / l, default l) ----------
+{
+  const meLogin = mm.me.login;
+  const raw = async (path, init) => { const r = await fetch(BASE + path, init); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+  const before = await api('/api/overlay-settings');
+  check(['s', 'm', 'l'].includes(before.size), `overlay settings readable (size=${before.size})`);
+  const bad = await raw('/api/overlay-settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ size: 'xl' }) });
+  check(bad.status === 400, `invalid board size rejected (${bad.status})`);
+  const ov = openSocket(`/api/overlay/${meLogin}/ws`); await ov.ready;
+  await waitFor(() => ov.last('hello'));
+  const saved = await api('/api/overlay-settings', { size: 'm' });
+  const cfg = await api(`/api/overlay/${meLogin}/config`);
+  check(saved.size === 'm' && cfg.size === 'm', `saved size persists and the public overlay config returns it (${cfg.size})`);
+  check(!!(await waitFor(() => ov.msgs.some((m) => m.type === 'size' && m.size === 'm'), 5000)), 'open overlay told about the new size (live resize)');
+  ov.ws.close();
+  const other = await api(`/api/overlay/zz_nobody_${RUN}/config`);
+  check(other.size === 'l', `channels without a saved size default to large (${other.size})`);
+  await api('/api/overlay-settings', { size: before.size === 'm' ? 'l' : before.size });
+  const page = await fetch(`${BASE}/overlay/${meLogin}?size=s`);
+  check(page.ok && /text\/html/.test(page.headers.get('content-type') ?? ''), `overlay page serves with ?size= param (${page.status})`);
+}
+
 // ---------- Self-hosted fonts ----------
 const html = await (await fetch(`${BASE}/growth/`)).text();
 const css = html.match(/\/_astro\/[^"]+\.css/g) ?? [];

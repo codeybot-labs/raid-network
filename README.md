@@ -27,6 +27,7 @@ Cron */10 ─▶ Helix GET /streams per tracked game ─▶ KV
 | Raid network map (SVG force graph, draggable, my network / everyone) | ✅ built |
 | Duels: invite → accept → countdown → live → winner; Tug of War and Chat Poll modes | ✅ built |
 | Shared duel overlay on both channels (`/overlay/:channel`) | ✅ built |
+| Duel board size: small / medium / large (`?size=s\|m\|l`, default large, saved per streamer) | ✅ built |
 | Free-for-all duels (3–4 channels, own lane + color each): **Chat Race** (first to the finish line, or highest at the buzzer) and per-channel **Chat Poll** (most voters wins) | ✅ built |
 | Team duels (Team A vs Team B, up to 4 channels each, uneven teams OK): pulls/votes add up per team, rope tug or poll, per-channel contribution, top channel (👑), top chatters | ✅ built |
 | Group-duel invites: host picks format, invites from partner suggestions or by Twitch login, assigns teams; invitees accept/decline from their dashboard; host starts once ≥2 sides are in, pending/declined channels are dropped | ✅ built (demo auto-accept) |
@@ -50,7 +51,7 @@ Cron */10 ─▶ Helix GET /streams per tracked game ─▶ KV
 npm install
 npm run dev          # builds the site, applies D1 migrations locally, starts wrangler dev with DEMO_MODE=true
 # open http://localhost:8787  → "Open dashboard"
-npm run smoke        # in a second terminal: end-to-end checks (matchmaking, raid, map, both duel modes in 1v1, FFA-3/4 and teams 2v2/4v4, signed EventSub, welcomes, auto-clips, !recap, growth report, AI assistant + co-host in template mode, rate limits, toggles, fonts)
+npm run smoke        # in a second terminal: end-to-end checks (matchmaking, raid, map, both duel modes in 1v1, FFA-3/4 and teams 2v2/4v4, signed EventSub, welcomes, auto-clips, !recap, growth report, AI assistant + co-host in template mode, rate limits, toggles, overlay board size setting, fonts)
 ```
 
 In demo mode you're signed in as **PixelPaladin** (Stardew Valley, ~40 viewers). Use the banner's "Viewing as" picker to switch to any fake streamer.
@@ -82,7 +83,7 @@ In demo mode you're signed in as **PixelPaladin** (Stardew Valley, ~40 viewers).
   ```
   Other demo endpoints: `POST /api/demo/stream {channel, action: "online"|"offline"}`. All `/api/demo/*` routes return 404 unless `DEMO_MODE=true`.
 
-Screenshots (white + red/blue theme, shadcn/solid-ui components): `docs/screenshots/landing-1080p.png`, `overlay-1v1-1080p.png` (1v1 tug board over game footage), `docs/screenshots/growth.png`, `docs/screenshots/overlay-cards.png` (and the full 1080p frame `overlay-cards-1080p.png`), group duel boards at 1080p: `overlay-ffa-1080p.png` (4-lane race), `overlay-ffa-poll-1080p.png`, `overlay-teams-1080p.png` (4v4 team tug). AI: `assistant-panel-1080p.png` (dashboard slide-out with raid + duel suggestions), `assistant-page-1080p.png` (`/assistant/`), `assistant-duel-handoff-1080p.png` (an assistant button opening the normal duel dialog), `dashboard-pitches-1080p.png` and `match-card-pitch.png` (collab pitch), `ai-cohost-settings.png`.
+Screenshots (white + red/blue theme, shadcn/solid-ui components): `docs/screenshots/landing-1080p.png`, `overlay-1v1-1080p.png` (1v1 tug board over game footage, large), `overlay-1v1-medium-1080p.png`, `overlay-1v1-small-1080p.png`, `obs-link-size-picker.png` (dashboard OBS link card with the S/M/L picker), `docs/screenshots/growth.png`, `docs/screenshots/overlay-cards.png` (and the full 1080p frame `overlay-cards-1080p.png`), group duel boards at 1080p: `overlay-ffa-1080p.png` (4-lane race), `overlay-ffa-poll-1080p.png`, `overlay-teams-1080p.png` (4v4 team tug). AI: `assistant-panel-1080p.png` (dashboard slide-out with raid + duel suggestions), `assistant-page-1080p.png` (`/assistant/`), `assistant-duel-handoff-1080p.png` (an assistant button opening the normal duel dialog), `dashboard-pitches-1080p.png` and `match-card-pitch.png` (collab pitch), `ai-cohost-settings.png`.
 
 Scripts: `npm run typecheck` (tsc for the worker + `astro check`), `npm run build`, `npm run deploy`.
 
@@ -144,6 +145,21 @@ creates a `stream.online` subscription against that callback, waits for Twitch's
 npm run deploy
 ```
 Sign in with Twitch on the deployed site. Raid Network then subscribes your channel to `stream.online`, `stream.offline`, `channel.raid` (in and out) and `channel.chat.message`. Add `https://<app>/overlay/<your_login>` to OBS as a 1920×1080 browser source.
+
+### Duel board size
+The duel board on the overlay comes in three sizes on a 1920×1080 canvas (all modes: 1v1 tug/poll, free-for-all race/poll, teams tug/poll):
+
+| Size | 1v1 width | Free-for-all width | Teams width |
+|---|---|---|---|
+| `s` small | 800px | 920px | 920px |
+| `m` medium | 1200px | ~1200px | ~1150px |
+| `l` large (default) | ~1680px | ~1680px | ~1470px (teams boards are taller, so they stop there to leave the bottom of the stream clear) |
+
+The board scales with CSS `zoom`, which re-lays out the board at the bigger size, so text, rope, avatars and chat chips stay crisp (no transform blur).
+
+- **URL:** `/overlay/<login>?size=s|m|l` always wins.
+- **Saved default:** pick S / M / L on the **Your OBS overlay link** card on the dashboard, or on your own card in a duel room. It's stored per streamer in D1 (`overlay_settings`, migration `0005`). An overlay URL without `?size=` reads it once on load (`GET /api/overlay/:login/config`), and open overlays resize live when you change it (one push over the existing overlay WebSocket, no polling). The pickers on other streamers' cards in a duel room only change the copied URL.
+- API: `GET`/`POST /api/overlay-settings` `{ size }` (signed in).
 
 ## AI co-host and assistant (Ollama Cloud)
 

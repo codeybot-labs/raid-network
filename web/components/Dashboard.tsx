@@ -10,6 +10,7 @@ import AiCohostPanel from './AiCohost';
 import { AssistantDrawer } from './Assistant';
 import './assistant.css';
 import Avatar from './Avatar';
+import ObsLink from './ObsLink';
 import RaidMap from './RaidMap';
 import { toast, Toasts } from './Toasts';
 import { Badge } from './ui/badge';
@@ -181,6 +182,8 @@ export default function Dashboard() {
               </For>
             </div>
           </Show>
+
+          <section id="obs"><ObsLink login={me()!.viewer!.login} mine title="Your OBS overlay link" note="Add once as a 1920×1080 browser source. Duel boards, raid welcomes, clips and !recap all show up here. Changing the size updates open overlays live." /></section>
 
           <AiCohostPanel onChange={() => setPitchOn((n) => n + 1)} />
 

@@ -4,8 +4,6 @@ import { api, liveSocket } from '../lib/api';
 import DuelBoard from './DuelBoard';
 import { toast, Toasts } from './Toasts';
 import Check from 'lucide-solid/icons/check';
-import Copy from 'lucide-solid/icons/copy';
-import ExternalLink from 'lucide-solid/icons/external-link';
 import Play from 'lucide-solid/icons/play';
 import Square from 'lucide-solid/icons/square';
 import X from 'lucide-solid/icons/x';
@@ -14,6 +12,7 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import './duel.css';
+import ObsLink from './ObsLink';
 
 const FORMAT_LABEL = { '1v1': '1v1 duel', ffa: 'Free-for-all', teams: 'Team battle' } as const;
 const SIDE_COLOR: Record<string, string> = { a: 'var(--a)', b: 'var(--b)', c: 'var(--c)', d: 'var(--d)' };
@@ -50,8 +49,6 @@ export default function DuelRoom() {
   const inDuel = () => !!mine() && isActive(mine()!);
   const canStart = () => isHost() || (state()?.format === '1v1' && inDuel());
   const pending = () => state()?.channels.filter((c) => c.invite === 'pending') ?? [];
-  const overlayUrl = (login: string) => `${location.origin}/overlay/${login}`;
-  const copy = (t: string) => navigator.clipboard?.writeText(t).then(() => toast('Copied'));
   const title = (s: DuelState) => {
     if (s.format === 'teams') return `${s.a.displayName} vs ${s.b.displayName}`;
     return s.channels.filter((c) => c.invite !== 'declined' && c.invite !== 'dropped').map((c) => c.displayName).join(' vs ');
@@ -146,13 +143,7 @@ export default function DuelRoom() {
             <section class={`overlay-links ${s().channels.filter(isActive).length > 2 ? 'many' : ''}`}>
               <For each={s().channels.filter((c) => c.invite !== 'declined' && c.invite !== 'dropped')}>
                 {(c) => (
-                  <Card class="grid gap-2 p-5">
-                    <div class="eyebrow">OBS browser source · {c.displayName}</div>
-                    <div class="ol-row"><code>{overlayUrl(c.login)}</code>
-                      <Button size="sm" variant="soft" onClick={() => copy(overlayUrl(c.login))}><Copy /> Copy</Button>
-                      <Button as="a" size="sm" variant="ghost" href={`/overlay/${c.login}`} target="_blank"><ExternalLink /> Preview</Button></div>
-                    <div class="dim" style={{ 'font-size': '12px' }}>Size 1920×1080, transparent background. The board appears when a duel starts.</div>
-                  </Card>
+                  <ObsLink login={c.login} displayName={c.displayName} mine={c.id === meId()} />
                 )}
               </For>
             </section>

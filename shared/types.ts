@@ -191,7 +191,16 @@ export type OverlayEvent =
   | ({ type: 'raid' } & RaidWelcome)
   | { type: 'clip'; clip: ClipInfo }
   | { type: 'recap'; lines: string[]; text: string }
-  | { type: 'toast'; text: string };
+  | { type: 'toast'; text: string }
+  | { type: 'size'; size: BoardSize };
+
+// ---------- OBS overlay settings ----------
+/** Duel board size on the 1920x1080 overlay: s ≈ 800-920px wide, m ≈ 1200px, l ≈ 1700px (default). */
+export type BoardSize = 's' | 'm' | 'l';
+export const BOARD_SIZES: readonly BoardSize[] = ['s', 'm', 'l'];
+export const DEFAULT_BOARD_SIZE: BoardSize = 'l';
+export const isBoardSize = (v: unknown): v is BoardSize => v === 's' || v === 'm' || v === 'l';
+export interface OverlaySettings { size: BoardSize }
 
 // ---------- Growth page ----------
 export interface TimelinePoint { t: number; msgs: number; chatters: number; viewers: number }

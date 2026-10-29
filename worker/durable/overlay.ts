@@ -463,6 +463,11 @@ export class OverlayDO extends DurableObject<Env> {
     return welcome;
   }
 
+  /** Board size default changed in the hub: overlays without ?size= resize live (one push, no polling). */
+  async sizeChanged(size: 's' | 'm' | 'l'): Promise<void> {
+    this.push({ type: 'size', size });
+  }
+
   async toast(text: string): Promise<void> {
     this.push({ type: 'toast', text });
   }
