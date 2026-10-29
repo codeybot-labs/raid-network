@@ -1,6 +1,8 @@
 import { createResource, createSignal, For, onCleanup, Show } from 'solid-js';
 import type { RaidGraph, RaidNode } from '../../shared/types';
 import { api } from '../lib/api';
+import { Skeleton } from './ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 
 const W = 1000;
 const H = 560;
@@ -108,22 +110,21 @@ export default function RaidMap() {
   return (
     <div class="raidmap">
       <div class="raidmap-bar">
-        <div class="seg">
-          <button class={scope() === 'me' ? 'on' : ''} onClick={() => setScope('me')}>My network</button>
-          <button class={scope() === 'all' ? 'on' : ''} onClick={() => setScope('all')}>Everyone</button>
-        </div>
+        <Tabs value={scope()} onChange={(v) => setScope(v as 'me' | 'all')}>
+          <TabsList><TabsTrigger value="me">My network</TabsTrigger><TabsTrigger value="all">Everyone</TabsTrigger></TabsList>
+        </Tabs>
         <Show when={graph()}>{(g) => <span class="dim mono">{g().nodes.length} channels · {g().edges.reduce((s, e) => s + e.count, 0)} raids</span>}</Show>
       </div>
-      <Show when={graph()} fallback={<div class="skeleton" style={{ height: '420px', margin: '16px' }} />}>
+      <Show when={graph()} fallback={<Skeleton class="m-4 h-[420px]" />}>
         {(g) => {
           init(g());
           return (
             <Show when={g().edges.length} fallback={<div class="empty">No raids recorded yet. Raid someone and it'll appear here.</div>}>
               <svg ref={svgEl} viewBox={`0 0 ${W} ${H}`} class="raidmap-svg" role="img" aria-label="Raid network graph">
                 <defs>
-                  <marker id="rm-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b79cff" /></marker>
-                  <marker id="rm-arrow-hot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#c8ff4d" /></marker>
-                  <radialGradient id="rm-me"><stop offset="0" stop-color="#e6ff9e" /><stop offset="1" stop-color="#c8ff4d" /></radialGradient>
+                  <marker id="rm-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#a9a6c2" /></marker>
+                  <marker id="rm-arrow-hot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#d4101f" /></marker>
+                  <radialGradient id="rm-me"><stop offset="0" stop-color="#f0323f" /><stop offset="1" stop-color="#d4101f" /></radialGradient>
                 </defs>
                 {(() => { tick(); return null; })()}
                 <g>
@@ -135,7 +136,7 @@ export default function RaidMap() {
                       return (
                         <path
                           d={(tick(), (() => { const a = byId.get(e.from), b = byId.get(e.to); return a && b ? edgePath(a.x, a.y, b.x, b.y, b.r) : ''; })())}
-                          fill="none" stroke={hot() ? '#c8ff4d' : '#b79cff'} stroke-opacity={dim() ? 0.06 : hot() ? 0.75 : 0.35}
+                          fill="none" stroke={hot() ? '#d4101f' : '#a9a6c2'} stroke-opacity={dim() ? 0.08 : hot() ? 0.8 : 0.55}
                           stroke-width={1 + Math.min(4, e.count)} marker-end={hot() ? 'url(#rm-arrow-hot)' : 'url(#rm-arrow)'}>
                           <title>{`${byId.get(e.from)?.displayName} → ${byId.get(e.to)?.displayName}: ${e.count} raid(s), ${e.viewers} viewers`}</title>
                         </path>
@@ -150,8 +151,8 @@ export default function RaidMap() {
                       return (
                         <g transform={(tick(), `translate(${n.x},${n.y})`)} opacity={dim() ? 0.25 : 1} class="rm-node"
                           onPointerEnter={() => setHover(n.id)} onPointerLeave={() => setHover(null)} onPointerDown={drag(n)}>
-                          <circle r={n.r} fill={n.isMe ? 'url(#rm-me)' : n.live ? '#8b5cf6' : '#3a2d63'} stroke={n.isMe ? '#fff' : '#b79cff'} stroke-opacity={n.isMe ? 0.9 : 0.4} stroke-width={n.isMe ? 3 : 1.5} />
-                          <Show when={n.live && !n.isMe}><circle r={3.5} cx={n.r * 0.7} cy={-n.r * 0.7} fill="#ff4f4f" /></Show>
+                          <circle r={n.r} fill={n.isMe ? 'url(#rm-me)' : n.live ? '#1c4fd8' : '#e6e4ef'} stroke={n.isMe ? '#fff' : n.live ? '#fff' : '#b7b4cc'} stroke-opacity={1} stroke-width={n.isMe ? 4 : 2} />
+                          <Show when={n.live && !n.isMe}><circle r={3.5} cx={n.r * 0.7} cy={-n.r * 0.7} fill="#d4101f" stroke="#fff" stroke-width="1.5" /></Show>
                           <text y={n.r + 14} text-anchor="middle" class="rm-label" font-weight={n.isMe ? 800 : 600}>{n.isMe ? `${n.displayName} (you)` : n.displayName}</text>
                         </g>
                       );

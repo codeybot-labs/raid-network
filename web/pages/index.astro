@@ -1,66 +1,95 @@
 ---
 import Base from '../layouts/Base.astro';
+import { buttonVariants } from '../components/ui/variants';
+const features = [
+  ['01', 'Matchmaking', 'Partners your size', 'Live streamers in your game ranked by size, shared tags, language and who raided you, each with Raid and Duel buttons.'],
+  ['02', 'Network map', 'See your raid web', "A live graph of who raided whom. Find the communities you're part of and the channels that always show up."],
+  ['03', 'Duels', 'Chat vs chat', 'Tug-of-war, races and polls for 2–8 channels. Every chat votes from its own channel, and one overlay shows it on every stream.'],
+  ['04', 'Growth', 'Keep the raiders', 'Raider welcomes, !recap, hype auto-clips and a post-stream report of the new faces each raid and duel brought in.'],
+];
 ---
-<Base title="Raid Network — grow together">
-  <a slot="right" class="btn primary" href="/auth/login">Sign in with Twitch</a>
+<Base title="Raid Network — grow together" hero>
+  <a slot="right" class={buttonVariants({ size: 'sm' })} href="/auth/login">Sign in with Twitch</a>
   <main class="wrap hero">
-    <section class="hero-copy">
-      <div class="eyebrow">For small & mid-size streamers</div>
-      <h1>Your next raid partner is <span class="hl">live right now.</span></h1>
-      <p class="lede">Raid Network finds streamers in your game at about your size (half to double your viewers), maps who raids whom, and lets two chats battle on one shared overlay.</p>
-      <div class="cta">
-        <a class="btn primary lg" href="/auth/login">Sign in with Twitch</a>
-        <a class="btn lg" href="/dashboard/">Open dashboard →</a>
+    <section>
+      <span class="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3.5 py-1.5 text-xs font-semibold tracking-[.08em] text-muted-foreground shadow-sm">
+        <span class="live-dot"></span> FOR SMALL &amp; MID-SIZE STREAMERS
+      </span>
+      <h1 class="hero-h1">Your next<br /><span class="text-red">raid partner</span><br /><span class="outline-blue">is live now.</span></h1>
+      <p class="lede">Raid Network finds streamers in your game at about your size (half to double your viewers), maps who raids whom, and lets whole chats battle on one shared overlay.</p>
+      <div class="flex flex-wrap items-center gap-4">
+        <a class={buttonVariants({ size: 'lg' })} href="/auth/login">Sign in with Twitch ↗</a>
+        <a class={buttonVariants({ size: 'lg', variant: 'outline' })} href="/dashboard/">Open dashboard →</a>
       </div>
-      <div class="stats mono">
-        <div><b>0.5×–2×</b><span>size-matched partners</span></div>
-        <div><b>1 click</b><span>raid or duel</span></div>
-        <div><b>2 chats</b><span>one live board</span></div>
+      <div class="mt-9 flex flex-wrap gap-8">
+        <div><b class="stat">0.5×–2×</b><span class="stat-l">size-matched partners</span></div>
+        <div><b class="stat">1 click</b><span class="stat-l">raid or duel</span></div>
+        <div><b class="stat">8 chats</b><span class="stat-l">one live board</span></div>
       </div>
     </section>
     <section class="hero-art" aria-hidden="true">
-      <svg viewBox="0 0 420 380" class="constellation">
-        <defs>
-          <linearGradient id="g1" x1="0" x2="1"><stop offset="0" stop-color="#44e1ff"/><stop offset="1" stop-color="#ff4fa3"/></linearGradient>
-          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#b79cff"/></marker>
-        </defs>
-        <g stroke="#b79cff" stroke-opacity=".45" stroke-width="1.6" fill="none" marker-end="url(#arr)">
-          <path d="M90 90 Q 160 40 222 82" /><path d="M240 110 Q 300 160 318 230" /><path d="M300 262 Q 200 320 128 270" />
-          <path d="M110 250 Q 70 180 86 118" /><path d="M120 110 Q 170 170 200 196" /><path d="M232 200 Q 280 120 330 92" />
-        </g>
-        <path d="M200 205 L 330 92" stroke="url(#g1)" stroke-width="3" class="flow" />
-        <g>
-          <circle cx="80" cy="100" r="22" fill="#44e1ff" /><circle cx="235" cy="92" r="16" fill="#8b5cf6" />
-          <circle cx="325" cy="245" r="26" fill="#ff4fa3" /><circle cx="115" cy="262" r="18" fill="#8b5cf6" />
-          <circle cx="212" cy="205" r="30" fill="#c8ff4d" /><circle cx="342" cy="84" r="14" fill="#b79cff" />
-        </g>
-        <text x="212" y="210" text-anchor="middle" font-family="Unbounded" font-weight="800" font-size="13" fill="#12091f">YOU</text>
-      </svg>
+      <div class="art-card">
+        <svg viewBox="0 0 420 380" class="constellation">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9b98b5"/></marker>
+            <marker id="arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#d4101f"/></marker>
+          </defs>
+          <g stroke="#b7b4cc" stroke-width="1.8" fill="none" marker-end="url(#arr)">
+            <path d="M90 90 Q 160 40 222 82" /><path d="M240 110 Q 300 160 318 230" /><path d="M300 262 Q 200 320 128 270" />
+            <path d="M110 250 Q 70 180 86 118" /><path d="M120 110 Q 170 170 200 196" />
+          </g>
+          <path d="M232 200 Q 280 120 330 92" stroke="#d4101f" stroke-width="3" fill="none" class="flow" marker-end="url(#arr-r)" />
+          <g>
+            <circle cx="80" cy="100" r="22" fill="#1c4fd8" /><circle cx="235" cy="92" r="16" fill="#14122b" />
+            <circle cx="325" cy="245" r="26" fill="#1c4fd8" /><circle cx="115" cy="262" r="18" fill="#d4101f" />
+            <circle cx="212" cy="205" r="32" fill="#d4101f" stroke="#fff" stroke-width="4" /><circle cx="342" cy="84" r="14" fill="#1536b8" />
+          </g>
+          <text x="212" y="210" text-anchor="middle" font-family="Unbounded Variable, sans-serif" font-weight="800" font-size="13" fill="#fff">YOU</text>
+        </svg>
+        <div class="art-duel">
+          <div class="flex items-center justify-between text-xs font-bold"><span class="text-red">RED CHAT 41</span><span class="font-mono text-muted-foreground">0:37</span><span class="text-blue">33 BLUE CHAT</span></div>
+          <div class="art-rope"><span></span></div>
+        </div>
+      </div>
     </section>
   </main>
-  <section class="wrap features">
-    <article class="panel"><div class="panel-body"><div class="eyebrow">01 · Matchmaking</div><h3>Partners your size</h3><p class="muted">Live streamers in your game ranked by size, shared tags, language and who raided you, each with Raid and Duel buttons.</p></div></article>
-    <article class="panel"><div class="panel-body"><div class="eyebrow">02 · Network map</div><h3>See your raid web</h3><p class="muted">A live graph of who raided whom. Find the communities you're part of and the channels that always show up.</p></div></article>
-    <article class="panel"><div class="panel-body"><div class="eyebrow">03 · Duels</div><h3>Chat vs chat</h3><p class="muted">Challenge a streamer to a tug-of-war or a poll. Both chats vote from their own channel, and one overlay shows the result on both streams.</p></div></article>
+  <section class="wrap mt-6">
+    <div class="eyebrow">What it does</div>
+    <h2 class="mb-8 mt-2 text-[clamp(28px,3.6vw,46px)] font-extrabold">Grow together, live.</h2>
+    <div class="features">
+      {features.map(([n, kicker, title, body]) => (
+        <article class="feature">
+          <div class="font-display text-sm font-black text-blue">{n}</div>
+          <div class="eyebrow mt-6">{kicker}</div>
+          <h3 class="mb-2 mt-1.5 text-xl">{title}</h3>
+          <p class="m-0 text-[15px] text-muted-foreground">{body}</p>
+        </article>
+      ))}
+    </div>
   </section>
 </Base>
 <style>
-  .hero { display: grid; grid-template-columns: 1.1fr .9fr; gap: 40px; align-items: center; padding-top: 80px; padding-bottom: 40px; }
-  .hero h1 { font-size: clamp(38px, 5.2vw, 66px); margin: 18px 0; }
-  .hl { background: linear-gradient(90deg, var(--lime), #7dffb0 40%, var(--a)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .lede { font-size: 18px; color: var(--muted); max-width: 560px; }
-  .cta { display: flex; gap: 12px; margin: 28px 0; flex-wrap: wrap; }
-  .stats { display: flex; gap: 28px; flex-wrap: wrap; }
-  .stats div { display: grid; }
-  .stats b { font-size: 22px; color: var(--text); }
-  .stats span { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-  .constellation { width: 100%; filter: drop-shadow(0 30px 60px rgba(139,92,246,.35)); }
+  .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: center; padding-top: 72px; padding-bottom: 56px; }
+  .hero-h1 { font-size: clamp(40px, 6.2vw, 88px); font-weight: 900; letter-spacing: -0.035em; line-height: 1.02; margin: 26px 0 22px; }
+  .outline-blue { color: var(--blue); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+  .lede { font-size: 19px; color: var(--muted-foreground); max-width: 580px; margin: 0 0 32px; }
+  .stat { display: block; font: 900 26px var(--font-display); letter-spacing: -0.02em; }
+  .stat-l { color: var(--muted-foreground); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .art-card { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 26px; padding: 18px 18px 22px; box-shadow: 10px 10px 0 var(--blue), 0 30px 80px -30px rgba(20,18,43,.3); transform: rotate(1.5deg); }
+  .constellation { width: 100%; display: block; }
   .constellation circle { animation: bob 6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
   .constellation circle:nth-child(2n) { animation-delay: -2s; }
   .flow { stroke-dasharray: 8 10; animation: flow 1.2s linear infinite; }
+  .art-duel { margin-top: 6px; padding: 12px 14px; border-radius: 16px; background: var(--muted); border: 1px solid var(--border); display: grid; gap: 10px; }
+  .art-rope { position: relative; height: 10px; border-radius: 99px; background: linear-gradient(90deg, var(--red) 0 55%, var(--blue) 55% 100%); }
+  .art-rope span { position: absolute; left: 55%; top: 50%; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--ink); transform: translate(-50%, -50%); }
   @keyframes flow { to { stroke-dashoffset: -36; } }
   @keyframes bob { 50% { transform: translateY(-6px); } }
-  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-  .features h3 { font-size: 20px; margin: 10px 0 6px; }
-  @media (max-width: 900px) { .hero, .features { grid-template-columns: 1fr; } }
+  .features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .feature { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 20px; padding: 26px; transition: transform .2s, border-color .2s, box-shadow .2s; }
+  .feature:hover { transform: translateY(-4px); border-color: var(--red); box-shadow: 0 20px 40px -24px rgba(212,16,31,.35); }
+  .feature:hover h3 { color: var(--red); }
+  @media (max-width: 1000px) { .features { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .features { grid-template-columns: 1fr; } }
 </style>

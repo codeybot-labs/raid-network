@@ -1,4 +1,9 @@
 import { createEffect, createResource, createSignal, For, Show } from 'solid-js';
+import ArrowRight from 'lucide-solid/icons/arrow-right';
+import RefreshCw from 'lucide-solid/icons/refresh-cw';
+import Sparkles from 'lucide-solid/icons/sparkles';
+import Swords from 'lucide-solid/icons/swords';
+import X from 'lucide-solid/icons/x';
 import type { AssistantAction, Match, MatchmakingResponse, Viewer } from '../../shared/types';
 import { api, fmtNum } from '../lib/api';
 import AiCohostPanel from './AiCohost';
@@ -7,13 +12,25 @@ import './assistant.css';
 import Avatar from './Avatar';
 import RaidMap from './RaidMap';
 import { toast, Toasts } from './Toasts';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Checkbox } from './ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Input, Label } from './ui/input';
+import { Select } from './ui/select';
+import { Skeleton } from './ui/skeleton';
+import { Slider } from './ui/slider';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+import { Tooltip } from './ui/tooltip';
 import './dashboard.css';
-
 type Me = { viewer: Viewer | null; demo: boolean; demoStreamers?: string[] };
 type DuelRowChannel = { id: string; login: string; displayName: string; side: string; invite: string };
 type DuelRow = { id: string; challenger_id: string; challenger_name: string; opponent_id: string; opponent_name: string; status: string; mode: string; format: '1v1' | 'ffa' | 'teams';
   created_at: number; winner: string | null; score_a: number; score_b: number; channels: DuelRowChannel[]; my_invite: string | null };
 const FORMAT_CHIP = { '1v1': '1v1', ffa: 'Free-for-all', teams: 'Teams' } as const;
+
 
 export default function Dashboard() {
   const [me] = createResource(() => api<Me>('/api/me'));
@@ -64,50 +81,52 @@ export default function Dashboard() {
     <>
       <Show when={me()?.demo}>
         <div class="demo-banner"><div class="wrap">
-          <span>● DEMO MODE: fake streamers and simulated chat, no Twitch calls.</span>
-          <span class="dim">Viewing as</span>
-          <select value={me()?.viewer?.login} onChange={(e) => (location.href = `/auth/login?as=${e.currentTarget.value}`)}>
-            <For each={me()?.demoStreamers}>{(l) => <option value={l}>{l}</option>}</For>
-          </select>
+          <Badge variant="blue">DEMO MODE</Badge>
+          <span>Fake streamers and simulated chat, no Twitch calls.</span>
+          <span class="spacer" />
+          <span class="muted">Viewing as</span>
+          <Select class="w-56" triggerClass="h-8 rounded-full" aria-label="Demo streamer" value={me()?.viewer?.login}
+            options={(me()?.demoStreamers ?? []).map((l) => ({ value: l, label: l }))}
+            onChange={(v) => (location.href = `/auth/login?as=${v}`)} />
         </div></div>
       </Show>
       <main class="wrap dash">
         <Show when={me() && !me()!.viewer}>
-          <div class="panel empty"><h2>Sign in to find raid partners</h2><p>Connect your Twitch channel to see live streamers your size.</p><a class="btn primary" href="/auth/login">Sign in with Twitch</a></div>
+          <Card class="empty"><h2>Sign in to find raid partners</h2><p class="muted">Connect your Twitch channel to see live streamers your size.</p><Button as="a" href="/auth/login">Sign in with Twitch</Button></Card>
         </Show>
         <Show when={me()?.viewer}>
           <section class="me-row">
-            <Show when={mm()} fallback={<div class="skeleton" style={{ height: '108px' }} />}>
+            <Show when={mm()} fallback={<Skeleton class="h-[108px]" />}>
               {(d) => (
-                <div class="me-card panel">
+                <Card class="me-card">
                   <Avatar name={d().me.displayName} src={d().me.avatarUrl} size={64} />
                   <div class="me-info">
                     <div class="eyebrow">Your channel</div>
                     <h1>{d().me.displayName}</h1>
                     <div class="me-meta">
-                      {d().live ? <span class="chip live">LIVE · {fmtNum(d().baseViewers)} viewers</span> : <span class="chip">Offline · usually ~{d().baseViewers}</span>}
-                      <span class="chip">{d().gameName || 'No category'}</span>
+                      {d().live ? <Badge variant="live">LIVE · {fmtNum(d().baseViewers)} viewers</Badge> : <Badge variant="muted">Offline · usually ~{d().baseViewers}</Badge>}
+                      <Badge variant="outline">{d().gameName || 'No category'}</Badge>
                     </div>
                   </div>
                   <div class="range">
-                    <div class="dim mono">MATCH RANGE</div>
+                    <div class="range-l">Match range</div>
                     <div class="range-num">{d().range[0]}–{d().range[1]}</div>
-                    <div class="dim">viewers · 0.5×–2×</div>
+                    <div class="muted text-xs">viewers · 0.5×–2×</div>
                   </div>
                   <div class="range">
-                    <div class="dim mono">PARTNERS LIVE</div>
-                    <div class="range-num lime">{d().matches.length}</div>
-                    <button class="btn sm ghost" onClick={() => { refetch(); setMapKey((k) => k + 1); }}>↻ Refresh</button>
+                    <div class="range-l">Partners live</div>
+                    <div class="range-num text-red">{d().matches.length}</div>
+                    <Button size="sm" variant="ghost" onClick={() => { refetch(); setMapKey((k) => k + 1); }}><RefreshCw /> Refresh</Button>
                   </div>
-                </div>
+                </Card>
               )}
             </Show>
           </section>
 
           <Show when={(duels()?.duels ?? []).some((d) => ['pending', 'accepted', 'countdown', 'live'].includes(d.status))}>
-            <section class="panel duels-panel">
-              <div class="panel-head"><h2>Duels</h2><span class="chip lime">active</span></div>
-              <div class="panel-body duel-list">
+            <Card class="duels-panel">
+              <CardHeader class="flex-row items-center justify-between border-b border-border pb-4"><CardTitle>Duels</CardTitle><Badge variant="red">active</Badge></CardHeader>
+              <CardContent class="duel-list pt-4">
                 <For each={duels()!.duels.filter((d) => ['pending', 'accepted', 'countdown', 'live'].includes(d.status))}>
                   {(d) => {
                     const incoming = d.my_invite === 'pending';
@@ -126,35 +145,36 @@ export default function Dashboard() {
                             <For each={names('b')}>{(c, i) => <>{i() ? ' + ' : ''}<b class="b" classList={{ pend: c.invite === 'pending' }}>{c.displayName}</b></>}</For>
                           </span>
                         </Show>
-                        <span class="chip">{FORMAT_CHIP[d.format ?? '1v1']} · {d.mode === 'tug' ? (d.format === 'ffa' ? 'Race' : 'Tug of War') : 'Poll'} · {d.status}</span>
-                        <Show when={incoming}><span class="chip lime">invite for you</span></Show>
+                        <Badge variant="muted">{FORMAT_CHIP[d.format ?? '1v1']} · {d.mode === 'tug' ? (d.format === 'ffa' ? 'Race' : 'Tug of War') : 'Poll'} · {d.status}</Badge>
+                        <Show when={incoming}><Badge variant="red">invite for you</Badge></Show>
                         <span class="spacer" />
                         <Show when={incoming && ['pending', 'accepted'].includes(d.status)}>
-                          <button class="btn sm primary" onClick={() => respond(d.id, 'accept')}>Accept</button>
-                          <button class="btn sm ghost" onClick={() => respond(d.id, 'decline')}>Decline</button>
+                          <Button size="sm" onClick={() => respond(d.id, 'accept')}>Accept</Button>
+                          <Button size="sm" variant="ghost" onClick={() => respond(d.id, 'decline')}>Decline</Button>
                         </Show>
-                        <a class="btn sm" href={`/duel/${d.id}`}>Open board →</a>
+                        <Button as="a" size="sm" variant="outline" href={`/duel/${d.id}`}>Open board <ArrowRight /></Button>
                       </div>
                     );
                   }}
                 </For>
-              </div>
-            </section>
+              </CardContent>
+            </Card>
           </Show>
 
           <section class="matches-head">
             <div>
               <div class="eyebrow">Matchmaking</div>
-              <h2>Live partners in {mm()?.gameName ?? '…'}</h2>
+              <h2>Live partners in <span class="text-blue">{mm()?.gameName ?? '…'}</span></h2>
             </div>
-            <button class="btn sm ghost" onClick={() => setAsstOpen(true)}>✨ Ask AI</button>
-            <button class="btn sm violet" onClick={() => setDuelTarget({ m: null })} disabled={!mm()}>⚔ Group duel</button>
-            <span class="dim mono">{mm() ? (mm()!.cacheAge >= 0 ? `cache ${Math.round(mm()!.cacheAge / 1000)}s old` : 'cache warming') : ''}</span>
+            <span class="spacer" />
+            <span class="muted mono text-xs">{mm() ? (mm()!.cacheAge >= 0 ? `cache ${Math.round(mm()!.cacheAge / 1000)}s old` : 'cache warming') : ''}</span>
+            <Button size="sm" variant="ghost" onClick={() => setAsstOpen(true)}><Sparkles /> Ask AI</Button>
+            <Button size="sm" variant="secondary" onClick={() => setDuelTarget({ m: null })} disabled={!mm()}><Swords /> Group duel</Button>
           </section>
-          <Show when={!mm.loading} fallback={<div class="grid"><For each={[1, 2, 3, 4, 5, 6]}>{() => <div class="skeleton" style={{ height: '230px' }} />}</For></div>}>
-            <Show when={mm.error}><div class="panel empty">Couldn't load matches: {String(mm.error?.message ?? mm.error)}</div></Show>
-            <Show when={mm() && mm()!.matches.length === 0}><div class="panel empty">Nobody in your size range is live in this category right now. Check back in a few minutes.</div></Show>
-            <div class="grid">
+          <Show when={!mm.loading} fallback={<div class="match-grid"><For each={[1, 2, 3, 4, 5, 6]}>{() => <Skeleton class="h-[300px]" />}</For></div>}>
+            <Show when={mm.error}><Card class="empty">Couldn't load matches: {String(mm.error?.message ?? mm.error)}</Card></Show>
+            <Show when={mm() && mm()!.matches.length === 0}><Card class="empty">Nobody in your size range is live in this category right now. Check back in a few minutes.</Card></Show>
+            <div class="match-grid">
               <For each={mm()?.matches}>
                 {(m, i) => <MatchCard m={m} rank={i() + 1} base={mm()!.baseViewers} onRaid={() => setRaidTarget(m)} onDuel={() => setDuelTarget({ m })}
                   pitch={pitches()?.enabled === false ? null : pitches.loading ? undefined : pitches()?.pitches[m.stream.id]?.text ?? null} />}
@@ -164,13 +184,13 @@ export default function Dashboard() {
 
           <AiCohostPanel onChange={() => setPitchOn((n) => n + 1)} />
 
-          <section id="network" class="panel network">
-            <div class="panel-head">
-              <div><div class="eyebrow">Raid network</div><h2>Who raids whom</h2></div>
-              <span class="dim">Arrows point from raider to raided. Bigger nodes have more viewers. Drag nodes to rearrange.</span>
-            </div>
+          <Card id="network" class="network">
+            <CardHeader class="flex-row items-end justify-between gap-4 border-b border-border">
+              <div><div class="eyebrow">Raid network</div><CardTitle class="mt-1.5 text-xl">Who raids whom</CardTitle></div>
+              <CardDescription class="max-w-[420px] text-right">Arrows point from raider to raided. Bigger nodes have more viewers. Drag nodes to rearrange.</CardDescription>
+            </CardHeader>
             <Show keyed when={mapKey() + 1}><RaidMap /></Show>
-          </section>
+          </Card>
         </Show>
       </main>
       <Show when={raidTarget()}>{(t) => <RaidModal m={t()} onClose={() => setRaidTarget(null)} onDone={() => { setRaidTarget(null); setMapKey((k) => k + 1); refetch(); }} />}</Show>
@@ -178,7 +198,7 @@ export default function Dashboard() {
       <Show when={me()?.viewer}>
         {(v) => (
           <>
-            <Show when={!asstOpen()}><button class="asst-fab" onClick={() => setAsstOpen(true)}>✨ Assistant</button></Show>
+            <Show when={!asstOpen()}><button class="asst-fab" onClick={() => setAsstOpen(true)}><Sparkles class="size-4" /> Assistant</button></Show>
             <AssistantDrawer open={asstOpen()} login={v().login} name={v().displayName} onClose={() => setAsstOpen(false)} onAction={onAction} />
           </>
         )}
@@ -196,30 +216,34 @@ function MatchCard(props: { m: Match; rank: number; base: number; onRaid: () => 
   // Position on a log scale from 0.5x (0%) to 2x (100%).
   const pos = () => Math.max(0, Math.min(100, ((Math.log2(props.m.ratio) + 1) / 2) * 100));
   return (
-    <article class="match panel" style={{ 'animation-delay': `${props.rank * 30}ms` }}>
+    <Card class="match" style={{ 'animation-delay': `${props.rank * 30}ms` }}>
       <div class="match-top">
         <Avatar name={s().displayName} src={s().avatarUrl} size={48} />
         <div class="match-name">
           <a href={`https://twitch.tv/${s().login}`} target="_blank" rel="noreferrer"><h3>{s().displayName}</h3></a>
-          <span class="chip live">{fmtNum(s().viewerCount)}</span>
+          <Badge variant="live">{fmtNum(s().viewerCount)} viewers</Badge>
         </div>
-        <div class="score" title="Match score">{props.m.score}</div>
+        <Tooltip content="Match score: size fit, shared tags, language and raid history">
+          <div class="score">{props.m.score}</div>
+        </Tooltip>
       </div>
       <p class="title">{s().title}</p>
-      <div class="ratio" title={`${props.m.ratio.toFixed(2)}× your viewers`}>
-        <div class="ratio-track"><span class="ratio-mid" /><span class="ratio-dot" style={{ left: `${pos()}%` }} /></div>
-        <div class="ratio-labels mono dim"><span>0.5×</span><span>you</span><span>2×</span></div>
-      </div>
+      <Tooltip class="block" content={`${props.m.ratio.toFixed(2)}× your viewers`}>
+        <div class="ratio w-full">
+          <div class="ratio-track"><span class="ratio-mid" /><span class="ratio-dot" style={{ left: `${pos()}%` }} /></div>
+          <div class="ratio-labels mono"><span>0.5×</span><span>you</span><span>2×</span></div>
+        </div>
+      </Tooltip>
       <Show when={props.pitch !== null}>
-        <p class="pitch" classList={{ loading: props.pitch === undefined }}><b>✨</b><span>{props.pitch ?? 'Writing a collab pitch…'}</span></p>
+        <p class="pitch" classList={{ loading: props.pitch === undefined }}><Sparkles class="size-4 shrink-0 text-blue" /><span>{props.pitch ?? 'Writing a collab pitch…'}</span></p>
       </Show>
       <ul class="reasons"><For each={props.m.reasons}>{(r) => <li>{r}</li>}</For></ul>
-      <div class="tags"><For each={s().tags.slice(0, 4)}>{(t) => <span class="chip">{t}</span>}</For></div>
+      <div class="tags"><For each={s().tags.slice(0, 4)}>{(t) => <Badge variant="muted">{t}</Badge>}</For></div>
       <div class="actions">
-        <button class="btn violet" onClick={props.onRaid}>⟶ Raid</button>
-        <button class="btn" onClick={props.onDuel}>⚔ Duel</button>
+        <Button onClick={props.onRaid}><ArrowRight /> Raid</Button>
+        <Button variant="outline" onClick={props.onDuel}><Swords /> Duel</Button>
       </div>
-    </article>
+    </Card>
   );
 }
 
@@ -234,18 +258,19 @@ function RaidModal(props: { m: Match; onClose: () => void; onDone: () => void })
     } catch (e) { toast((e as Error).message, true); setBusy(false); }
   };
   return (
-    <div class="modal-back" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div class="modal">
-        <div class="panel-head"><h2>Raid {props.m.stream.displayName}?</h2></div>
-        <div class="panel-body">
-          <p class="muted">Your viewers go to <b>{props.m.stream.displayName}</b> ({props.m.stream.viewerCount} viewers, {props.m.stream.gameName}). Twitch starts a 90-second raid countdown on your stream.</p>
-        </div>
-        <div class="modal-foot">
-          <button class="btn ghost" onClick={props.onClose}>Cancel</button>
-          <button class="btn primary" disabled={busy()} onClick={go}>{busy() ? 'Starting…' : 'Start raid'}</button>
-        </div>
-      </div>
-    </div>
+    <Dialog open onOpenChange={(o) => !o && props.onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <div class="eyebrow">Raid</div>
+          <DialogTitle>Raid {props.m.stream.displayName}?</DialogTitle>
+          <DialogDescription>Your viewers go to <b class="text-foreground">{props.m.stream.displayName}</b> ({props.m.stream.viewerCount} viewers, {props.m.stream.gameName}). Twitch starts a 90-second raid countdown on your stream.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={props.onClose}>Cancel</Button>
+          <Button disabled={busy()} onClick={go}>{busy() ? 'Starting…' : 'Start raid'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -330,82 +355,79 @@ function DuelModal(props: { m: Match | null; initial?: DuelPick; matches: Match[
   };
 
   return (
-    <div class="modal-back" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div class="modal duel-modal">
-        <div class="panel-head"><h2>{format() === '1v1' && first ? `Challenge ${first.displayName}` : 'New duel'}</h2></div>
-        <div class="panel-body">
-          <div class="seg">
-            <button class={format() === '1v1' ? 'on' : ''} onClick={() => pickFormat('1v1')}>1v1</button>
-            <button class={format() === 'ffa' ? 'on' : ''} onClick={() => pickFormat('ffa')}>Free-for-all</button>
-            <button class={format() === 'teams' ? 'on' : ''} onClick={() => pickFormat('teams')}>Teams</button>
+    <Dialog open onOpenChange={(o) => !o && props.onClose()}>
+      <DialogContent class="duel-modal max-w-[600px] gap-0 p-0">
+        <DialogHeader class="border-b border-border px-6 py-5">
+          <div class="eyebrow">Duel</div>
+          <DialogTitle>{format() === '1v1' && first ? `Challenge ${first.displayName}` : 'New duel'}</DialogTitle>
+        </DialogHeader>
+        <div class="duel-body">
+          <div class="flex flex-wrap gap-2">
+            <Tabs value={format()} onChange={(v) => pickFormat(v as Format)}>
+              <TabsList><TabsTrigger value="1v1">1v1</TabsTrigger><TabsTrigger value="ffa">Free-for-all</TabsTrigger><TabsTrigger value="teams">Teams</TabsTrigger></TabsList>
+            </Tabs>
+            <Tabs value={mode()} onChange={(v) => setMode(v as 'tug' | 'poll')}>
+              <TabsList><TabsTrigger value="tug">{format() === 'ffa' ? 'Chat Race' : 'Tug of War'}</TabsTrigger><TabsTrigger value="poll">Chat Poll</TabsTrigger></TabsList>
+            </Tabs>
           </div>
-          <div class="seg">
-            <button class={mode() === 'tug' ? 'on' : ''} onClick={() => setMode('tug')}>{format() === 'ffa' ? 'Chat Race' : 'Tug of War'}</button>
-            <button class={mode() === 'poll' ? 'on' : ''} onClick={() => setMode('poll')}>Chat Poll</button>
-          </div>
-          <p class="muted" style={{ margin: 0 }}>{blurb()}</p>
+          <p class="muted m-0 text-sm">{blurb()}</p>
 
           <div class="picks">
-            <div class="eyebrow">Channels · {picks().length + 1}{format() === 'teams' ? ` (A ${count('a')} · B ${count('b')})` : ''}</div>
-            <div class="pick you"><b>You</b><span class="mono dim">{format() === 'teams' ? 'Team A · host' : 'host'}</span></div>
+            <div class="eyebrow blue">Channels · {picks().length + 1}{format() === 'teams' ? ` (A ${count('a')} · B ${count('b')})` : ''}</div>
+            <div class="pick you"><b>You</b><Badge variant={format() === 'teams' ? 'red' : 'muted'}>{format() === 'teams' ? 'Team A · host' : 'host'}</Badge></div>
             <For each={picks()}>
               {(p) => (
                 <div class="pick">
                   <b>{p.displayName}</b>
                   <Show when={format() === 'teams'}>
-                    <span class="seg mini">
-                      <button class={p.team === 'a' ? 'on' : ''} onClick={() => setTeam(p.login, 'a')}>A</button>
-                      <button class={p.team === 'b' ? 'on' : ''} onClick={() => setTeam(p.login, 'b')}>B</button>
-                    </span>
+                    <ToggleGroup value={p.team} onChange={(v) => v && setTeam(p.login, v as 'a' | 'b')} aria-label={`Team for ${p.displayName}`}>
+                      <ToggleGroupItem value="a" class="data-[pressed]:bg-red">A</ToggleGroupItem>
+                      <ToggleGroupItem value="b" class="data-[pressed]:bg-blue">B</ToggleGroupItem>
+                    </ToggleGroup>
                   </Show>
-                  <button class="btn sm ghost" onClick={() => setPicks(picks().filter((x) => x.login !== p.login))}>✕</button>
+                  <Button size="icon" variant="ghost" class="size-7" aria-label={`Remove ${p.displayName}`} onClick={() => setPicks(picks().filter((x) => x.login !== p.login))}><X /></Button>
                 </div>
               )}
             </For>
             <Show when={picks().length < limit()}>
               <div class="pick-add">
-                <select onChange={(e) => {
-                  const m = props.matches.find((x) => x.stream.login === e.currentTarget.value);
-                  if (m) add({ id: m.stream.id, login: m.stream.login, displayName: m.stream.displayName });
-                  e.currentTarget.value = '';
-                }}>
-                  <option value="">+ Add a live partner…</option>
-                  <For each={suggestions()}>{(m) => <option value={m.stream.login}>{m.stream.displayName} · {m.stream.viewerCount} viewers</option>}</For>
-                </select>
-                <input placeholder="or Twitch login" value={loginIn()} onInput={(e) => setLoginIn(e.currentTarget.value)}
+                <Select class="flex-[1_1_240px]" placeholder="+ Add a live partner…" resetOnPick aria-label="Add a live partner"
+                  options={suggestions().map((m) => ({ value: m.stream.login, label: m.stream.displayName, hint: `${m.stream.viewerCount} viewers` }))}
+                  onChange={(v) => { const m = props.matches.find((x) => x.stream.login === v); if (m) add({ id: m.stream.id, login: m.stream.login, displayName: m.stream.displayName }); }} />
+                <Input class="flex-[1_1_140px] w-auto" placeholder="or Twitch login" value={loginIn()} onInput={(e) => setLoginIn(e.currentTarget.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && loginIn().trim()) { add({ login: loginIn().trim().toLowerCase(), displayName: loginIn().trim() }); setLoginIn(''); } }} />
-                <button class="btn sm" disabled={!loginIn().trim()} onClick={() => { add({ login: loginIn().trim().toLowerCase(), displayName: loginIn().trim() }); setLoginIn(''); }}>Add</button>
+                <Button variant="soft" disabled={!loginIn().trim()} onClick={() => { add({ login: loginIn().trim().toLowerCase(), displayName: loginIn().trim() }); setLoginIn(''); }}>Add</Button>
               </div>
             </Show>
-            <Show when={problem()}><div class="dim" style={{ 'font-size': '12px' }}>{problem()}</div></Show>
+            <Show when={problem()}><div class="text-xs font-semibold text-red">{problem()}</div></Show>
           </div>
 
           <Show when={format() === 'teams'}>
             <div class="row2">
-              <label>Team A name<input value={teamA()} maxLength={24} onInput={(e) => setTeamA(e.currentTarget.value)} /></label>
-              <label>Team B name<input value={teamB()} maxLength={24} onInput={(e) => setTeamB(e.currentTarget.value)} /></label>
+              <Label>Team A name<Input value={teamA()} maxLength={24} onInput={(e) => setTeamA(e.currentTarget.value)} /></Label>
+              <Label>Team B name<Input value={teamB()} maxLength={24} onInput={(e) => setTeamB(e.currentTarget.value)} /></Label>
             </div>
           </Show>
           <Show when={mode() === 'poll'}>
-            <label>
-              <span class="q-label">Question<button type="button" class="linkish" disabled={suggesting()} onClick={suggest}>{suggesting() ? 'Thinking…' : '✨ Suggest question'}</button></span>
-              <input value={question()} onInput={(e) => setQuestion(e.currentTarget.value)} maxLength={120} />
-            </label>
-            <label>Options (comma-separated, 2–4)<input value={opts()} onInput={(e) => setOpts(e.currentTarget.value)} /></label>
+            <Label>
+              <span class="q-label">Question<Button variant="link" size="sm" class="h-auto" disabled={suggesting()} onClick={suggest}><Sparkles /> {suggesting() ? 'Thinking…' : 'Suggest question'}</Button></span>
+              <Input value={question()} onInput={(e) => setQuestion(e.currentTarget.value)} maxLength={120} />
+            </Label>
+            <Label>Options (comma-separated, 2–4)<Input value={opts()} onInput={(e) => setOpts(e.currentTarget.value)} /></Label>
           </Show>
-          <label>Duration: {dur()}s<input type="range" min="20" max="300" step="10" value={dur()} onInput={(e) => setDur(+e.currentTarget.value)} /></label>
+          <Slider label="Duration" valueLabel={`${dur()}s`} minValue={20} maxValue={300} step={10} value={[dur()]} onChange={(v) => setDur(v[0])} />
           <Show when={format() === 'ffa' && mode() === 'tug'}>
-            <label>Finish line: {target()} pulls<input type="range" min="20" max="600" step="10" value={target()} onInput={(e) => setTarget(+e.currentTarget.value)} /></label>
+            <Slider label="Finish line" valueLabel={`${target()} pulls`} minValue={20} maxValue={600} step={10} value={[target()]} onChange={(v) => setTarget(v[0])} />
           </Show>
           <Show when={props.demo && format() !== '1v1'}>
-            <label class="check"><input type="checkbox" checked={autoAccept()} onChange={(e) => setAutoAccept(e.currentTarget.checked)} /> Demo: invited streamers accept right away</label>
+            <Checkbox checked={autoAccept()} onChange={setAutoAccept} label="Demo: invited streamers accept right away" />
           </Show>
         </div>
-        <div class="modal-foot">
-          <button class="btn ghost" onClick={props.onClose}>Cancel</button>
-          <button class="btn primary" disabled={busy() || !!problem()} onClick={go}>{busy() ? 'Sending…' : picks().length > 1 ? `Send ${picks().length} invites` : 'Send challenge'}</button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter class="border-t border-border px-6 py-4">
+          <Button variant="ghost" onClick={props.onClose}>Cancel</Button>
+          <Button disabled={busy() || !!problem()} onClick={go}>{busy() ? 'Sending…' : picks().length > 1 ? `Send ${picks().length} invites` : 'Send challenge'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,7 +1,7 @@
-const PALETTES = [
-  ['#c8ff4d', '#44e1ff'], ['#ff4fa3', '#8b5cf6'], ['#44e1ff', '#8b5cf6'], ['#ffb84d', '#ff4fa3'],
-  ['#7dffb0', '#c8ff4d'], ['#b79cff', '#44e1ff'], ['#ff7a59', '#ffcf4d'],
-];
+import { Avatar as UiAvatar } from './ui/avatar';
+
+// Showdown-palette fallbacks: solid red / blue / ink / deep blue / gold tiles with white initials.
+const PALETTE = ['#d4101f', '#1c4fd8', '#14122b', '#1536b8', '#b80d1a', '#c48700'];
 
 function hash(s: string) {
   let h = 0;
@@ -9,14 +9,13 @@ function hash(s: string) {
   return Math.abs(h);
 }
 
-export default function Avatar(props: { name: string; src?: string; size?: number }) {
+export default function Avatar(props: { name: string; src?: string; size?: number; ring?: string }) {
   const size = () => props.size ?? 44;
-  const pal = () => PALETTES[hash(props.name) % PALETTES.length];
   const initials = () => props.name.replace(/[^A-Za-z0-9]/g, '').replace(/([a-z])([A-Z])/g, '$1 $2').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
-    <div class="avatar" style={{ width: `${size()}px`, height: `${size()}px`, 'font-size': `${size() * 0.36}px`,
-      background: `linear-gradient(135deg, ${pal()[0]}, ${pal()[1]})`, 'border-radius': `${size() * 0.32}px` }}>
-      {props.src ? <img src={props.src} alt="" /> : initials()}
-    </div>
+    <UiAvatar src={props.src} fallback={initials()} style={{
+      width: `${size()}px`, height: `${size()}px`, 'font-size': `${size() * 0.36}px`, 'border-radius': `${size() * 0.32}px`,
+      background: PALETTE[hash(props.name) % PALETTE.length], ...(props.ring ? { 'box-shadow': `0 0 0 3px ${props.ring}` } : {}),
+    }} />
   );
 }

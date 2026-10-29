@@ -1,10 +1,11 @@
 ---
 import Base from '../layouts/Base.astro';
+import { buttonVariants } from '../components/ui/variants';
 ---
 <Base title="Lost in the network">
   <main class="wrap" style="padding:100px 24px;text-align:center">
     <div class="eyebrow">404</div>
-    <h1 style="font-size:48px;margin:14px 0">This raid went nowhere.</h1>
-    <a class="btn primary" href="/dashboard/">Back to the dashboard</a>
+    <h1 style="font-size:48px;margin:14px 0 28px">This raid went <span class="text-red">nowhere.</span></h1>
+    <a class={buttonVariants()} href="/dashboard/">Back to the dashboard</a>
   </main>
 </Base>

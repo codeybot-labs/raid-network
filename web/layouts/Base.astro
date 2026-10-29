@@ -1,41 +1,58 @@
 ---
 // Self-hosted fonts (OFL, bundled into dist by Vite). No third-party font CDN.
+// Unbounded + Space Grotesk are the Streamer Showdown display/body pair.
 import '@fontsource-variable/unbounded/wght.css';
-import '@fontsource-variable/manrope/wght.css';
+import '@fontsource-variable/space-grotesk/wght.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import '../styles/global.css';
 import Logo from '../components/Logo.astro';
-interface Props { title?: string; active?: string; bare?: boolean }
-const { title = 'Raid Network', active = '', bare = false } = Astro.props;
+import Splash from '../components/Splash.astro';
+interface Props { title?: string; active?: string; bare?: boolean; hero?: boolean }
+const { title = 'Raid Network', active = '', bare = false, hero = false } = Astro.props;
+const nav = [
+  ['dashboard', '/dashboard/', 'Dashboard'],
+  ['network', '/dashboard/#network', 'Network'],
+  ['growth', '/growth/', 'Growth'],
+  ['assistant', '/assistant/', 'Assistant'],
+];
 ---
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>{title}</title>
     <meta name="description" content="Find raid partners your size, see your raid network, and duel other streamers' chats live." />
   </head>
   <body class={bare ? 'bare' : 'app'}>
+    {!bare && <Splash hero={hero} />}
     {!bare && (
-      <header class="topbar">
-        <div class="wrap">
-          <a class="brand" href="/"><Logo /> Raid Network <span class="tag">BETA</span></a>
-          <nav class="nav">
-            <a href="/dashboard/" class={active === 'dashboard' ? 'active' : ''}>Dashboard</a>
-            <a href="/dashboard/#network" class={active === 'network' ? 'active' : ''}>Network</a>
-            <a href="/growth/" class={active === 'growth' ? 'active' : ''}>Growth</a>
-            <a href="/assistant/" class={active === 'assistant' ? 'active' : ''}>Assistant</a>
+      <header class="sticky top-0 z-30 border-b border-border bg-white/80 backdrop-blur-md">
+        <div class="wrap flex h-16 items-center gap-7">
+          <a class="flex items-center gap-2.5 font-display text-[17px] font-extrabold tracking-tight text-foreground" href="/">
+            <Logo /> Raid Network
+            <span class="rounded-full border border-red/30 bg-red-soft px-2 py-px font-sans text-[10px] font-bold tracking-[.12em] text-red">BETA</span>
+          </a>
+          <nav class="hidden gap-1 md:flex">
+            {nav.map(([key, href, label]) => (
+              <a href={href} class={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${active === key ? 'bg-ink text-white' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>{label}</a>
+            ))}
           </nav>
-          <div class="spacer"></div>
+          <div class="flex-1"></div>
           <slot name="right" />
         </div>
       </header>
     )}
     <slot />
     {!bare && (
-      <footer class="foot"><div class="wrap">Raid Network · built on Cloudflare Workers · not affiliated with Twitch</div></footer>
+      <footer class="relative z-[1] mt-20 border-t border-border py-7 text-[13px] text-muted-foreground">
+        <div class="wrap flex flex-wrap items-center gap-2">
+          <span class="inline-block size-2 rounded-full bg-red"></span><span class="inline-block size-2 rounded-full bg-blue"></span>
+          Raid Network · built on Cloudflare Workers · not affiliated with Twitch
+        </div>
+      </footer>
     )}
   </body>
 </html>

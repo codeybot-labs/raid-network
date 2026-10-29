@@ -82,7 +82,7 @@ In demo mode you're signed in as **PixelPaladin** (Stardew Valley, ~40 viewers).
   ```
   Other demo endpoints: `POST /api/demo/stream {channel, action: "online"|"offline"}`. All `/api/demo/*` routes return 404 unless `DEMO_MODE=true`.
 
-Screenshots: `docs/screenshots/growth.png`, `docs/screenshots/overlay-cards.png` (and the full 1080p frame `overlay-cards-1080p.png`), group duel boards at 1080p: `overlay-ffa-1080p.png` (4-lane race), `overlay-ffa-poll-1080p.png`, `overlay-teams-1080p.png` (4v4 team tug). AI: `assistant-panel-1080p.png` (dashboard slide-out with raid + duel suggestions), `assistant-page-1080p.png` (`/assistant/`), `assistant-duel-handoff-1080p.png` (an assistant button opening the normal duel dialog), `dashboard-pitches-1080p.png` and `match-card-pitch.png` (collab pitch), `ai-cohost-settings.png`.
+Screenshots (white + red/blue theme, shadcn/solid-ui components): `docs/screenshots/landing-1080p.png`, `overlay-1v1-1080p.png` (1v1 tug board over game footage), `docs/screenshots/growth.png`, `docs/screenshots/overlay-cards.png` (and the full 1080p frame `overlay-cards-1080p.png`), group duel boards at 1080p: `overlay-ffa-1080p.png` (4-lane race), `overlay-ffa-poll-1080p.png`, `overlay-teams-1080p.png` (4v4 team tug). AI: `assistant-panel-1080p.png` (dashboard slide-out with raid + duel suggestions), `assistant-page-1080p.png` (`/assistant/`), `assistant-duel-handoff-1080p.png` (an assistant button opening the normal duel dialog), `dashboard-pitches-1080p.png` and `match-card-pitch.png` (collab pitch), `ai-cohost-settings.png`.
 
 Scripts: `npm run typecheck` (tsc for the worker + `astro check`), `npm run build`, `npm run deploy`.
 

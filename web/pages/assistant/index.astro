@@ -1,8 +1,9 @@
 ---
 import Base from '../../layouts/Base.astro';
+import { buttonVariants } from '../../components/ui/variants';
 import AssistantPage from '../../components/Assistant';
 ---
 <Base title="Assistant · Raid Network" active="assistant">
-  <a slot="right" class="btn sm ghost" href="/auth/logout">Sign out</a>
+  <a slot="right" class={buttonVariants({ variant: 'ghost', size: 'sm' })} href="/auth/logout">Sign out</a>
   <AssistantPage client:only="solid-js" />
 </Base>

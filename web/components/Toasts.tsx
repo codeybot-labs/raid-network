@@ -1,12 +1,10 @@
-import { createSignal, For } from 'solid-js';
+import { toast as sonner } from 'solid-sonner';
+import { Toaster } from './ui/sonner';
 
-const [toasts, setToasts] = createSignal<{ id: number; text: string; err?: boolean }[]>([]);
-let n = 0;
+/** Thin wrapper so islands keep calling toast(text, err); rendered by shadcn's Sonner. */
 export function toast(text: string, err = false) {
-  const id = ++n;
-  setToasts((t) => [...t, { id, text, err }]);
-  setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
+  if (err) sonner.error(text); else sonner.success(text);
 }
 export function Toasts() {
-  return <div class="toast-stack"><For each={toasts()}>{(t) => <div class={`toast ${t.err ? 'err' : ''}`}>{t.text}</div>}</For></div>;
+  return <Toaster />;
 }

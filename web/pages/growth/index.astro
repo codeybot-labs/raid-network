@@ -1,8 +1,9 @@
 ---
 import Base from '../../layouts/Base.astro';
+import { buttonVariants } from '../../components/ui/variants';
 import Growth from '../../components/Growth';
 ---
 <Base title="Growth · Raid Network" active="growth">
-  <a slot="right" class="btn sm ghost" href="/auth/logout">Sign out</a>
+  <a slot="right" class={buttonVariants({ variant: 'ghost', size: 'sm' })} href="/auth/logout">Sign out</a>
   <Growth client:only="solid-js" />
 </Base>

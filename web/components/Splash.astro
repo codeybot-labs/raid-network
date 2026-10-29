@@ -1,0 +1,21 @@
+---
+// Red/blue splash backdrop modelled on the Streamer Showdown hero: two soft radial blobs,
+// faint conic "spotlight" rays and a few confetti shapes (triangles, squares, crosses, rings).
+const { hero = false } = Astro.props;
+---
+<div class={`splash ${hero ? 'hero' : 'app'}`} aria-hidden="true">
+  <div class="rays"></div>
+  <svg class="confetti" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1440 900">
+    <g opacity=".55">
+      <path d="M418 70 l22 20 -30 6z" fill="#d4101f" opacity=".55" />
+      <rect x="1180" y="120" width="18" height="18" rx="3" transform="rotate(20 1189 129)" fill="#1c4fd8" opacity=".5" />
+      <circle cx="320" cy="210" r="9" fill="none" stroke="#1c4fd8" stroke-width="3" opacity=".45" />
+      <path d="M1236 430 h8 v-8 h8 v8 h8 v8 h-8 v8 h-8 v-8 h-8z" fill="#d4101f" opacity=".45" transform="rotate(20 1250 438)" />
+      <path d="M70 600 l26 -8 -6 26z" fill="#d4101f" opacity=".45" />
+      <rect x="96" y="232" width="22" height="22" rx="4" transform="rotate(25 107 243)" fill="#1c4fd8" opacity=".35" />
+      <circle cx="1360" cy="760" r="8" fill="none" stroke="#1c4fd8" stroke-width="3" opacity=".45" />
+      <path d="M690 820 h6 v-6 h6 v6 h6 v6 h-6 v6 h-6 v-6 h-6z" fill="#1c4fd8" opacity=".35" />
+      <path d="M1010 60 l18 14 -24 6z" fill="#1c4fd8" opacity=".35" />
+    </g>
+  </svg>
+</div>

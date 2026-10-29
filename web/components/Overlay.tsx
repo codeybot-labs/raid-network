@@ -50,11 +50,11 @@ export default function Overlay() {
     else if (ev.type === 'duel' && ev.duelId && ev.status !== 'finished' && ev.status !== 'cancelled') watchDuel(ev.duelId);
     else if (ev.type === 'raid') card({
       kind: 'raid', who: ev.from.displayName, title: `${ev.from.displayName} is raiding!`,
-      sub: `${ev.viewers} ${ev.viewers === 1 ? 'raider' : 'raiders'}${ev.game ? ` from ${ev.game}` : ''} · welcome in 💜`,
+      sub: `${ev.viewers} ${ev.viewers === 1 ? 'raider' : 'raiders'}${ev.game ? ` from ${ev.game}` : ''} · welcome in ❤️💙`,
       badge: ev.raidCount > 1 ? `RAID #${ev.raidCount}` : 'FIRST RAID',
     });
     else if (ev.type === 'clip') card({
-      kind: 'clip', title: 'Clipped that! 🎬', badge: `${ev.clip.score.toFixed(1)}× HYPE`,
+      kind: 'clip', title: 'Clipped that!', badge: `${ev.clip.score.toFixed(1)}× HYPE`,
       sub: ev.clip.quote ? `chat: “${ev.clip.quote}”` : 'chat went wild',
     });
     else if (ev.type === 'recap') card({ kind: 'recap', title: 'Stream recap', sub: '', lines: ev.lines, badge: '!recap' });
@@ -81,26 +81,24 @@ export default function Overlay() {
         )}</For>
       </div>
       <style>{`
-        .overlay-root { position: fixed; inset: 0; font-family: var(--font-body); color: var(--text); }
-        .ol-debug { position: absolute; top: 8px; left: 8px; font-size: 12px; background: rgba(0,0,0,.6); padding: 4px 8px; border-radius: 6px; }
+        .overlay-root { position: fixed; inset: 0; font-family: var(--font-body); color: var(--ink); }
+        .ol-debug { position: absolute; top: 8px; left: 8px; font-size: 12px; background: #fff; color: var(--ink); padding: 4px 8px; border-radius: 6px; }
         .ol-duel { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); animation: drop .5s cubic-bezier(.3,1.4,.5,1); }
         .ol-cards { position: absolute; bottom: 40px; left: 40px; display: grid; gap: 14px; justify-items: start; }
-        .ol-card { display: flex; align-items: center; gap: 16px; min-width: 380px; max-width: 560px; padding: 16px 22px 16px 16px; border-radius: 20px;
-          background: linear-gradient(135deg, rgba(139,92,246,.96), rgba(80,40,180,.96)); color: #fff;
-          border: 1px solid rgba(255,255,255,.25); box-shadow: 0 20px 50px -10px rgba(139,92,246,.7); animation: drop .5s cubic-bezier(.3,1.4,.5,1); }
-        .ol-card.toast { padding-left: 22px; }
-        .ol-card.raid { background: linear-gradient(135deg, #c8ff4d, #7dffb0); color: #12091f; box-shadow: 0 20px 60px -12px rgba(200,255,77,.65); }
-        .ol-card.raid .avatar { box-shadow: 0 0 0 3px #12091f; }
-        .ol-card.clip { background: linear-gradient(135deg, #ff4fa3, #8b5cf6); box-shadow: 0 20px 60px -12px rgba(255,79,163,.7); }
-        .ol-card.recap { align-items: flex-start; background: linear-gradient(160deg, rgba(18,11,34,.96), rgba(40,22,80,.96)); border-color: rgba(68,225,255,.5); box-shadow: 0 20px 60px -12px rgba(68,225,255,.45); padding-left: 22px; }
-        .ol-icon { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 22px; background: rgba(255,255,255,.18); border: 2px solid rgba(255,255,255,.5); }
-        .ol-card-body { display: grid; gap: 2px; min-width: 0; }
-        .ol-badge { justify-self: start; font-size: 11px; font-weight: 700; letter-spacing: .12em; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,.22); }
-        .ol-card.raid .ol-badge { background: #12091f; color: #c8ff4d; }
-        .ol-card.recap .ol-badge { background: rgba(68,225,255,.16); color: #44e1ff; }
-        .ol-card-title { font: 800 22px var(--font-display); line-height: 1.15; }
-        .ol-card-sub { font-weight: 700; opacity: .88; }
-        .ol-lines { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; font-weight: 600; font-size: 15px; }
+        .ol-card { --acc: var(--red); --acc2: var(--blue); position: relative; display: flex; align-items: center; gap: 16px; min-width: 400px; max-width: 580px;
+          padding: 16px 24px 16px 22px; border-radius: 20px; overflow: hidden; background: #fff; color: var(--ink);
+          border: 1px solid var(--border); box-shadow: 6px 6px 0 var(--acc2), 0 24px 50px -16px rgba(20,18,43,.55); animation: drop .5s cubic-bezier(.3,1.4,.5,1); }
+        .ol-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 7px; background: var(--acc); }
+        .ol-card.clip, .ol-card.toast { --acc: var(--blue); --acc2: var(--red); }
+        .ol-card.recap { align-items: flex-start; --acc: var(--ink); --acc2: var(--red); }
+        .ol-card .avatar { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--acc); }
+        .ol-icon { width: 52px; height: 52px; flex: none; border-radius: 16px; display: grid; place-items: center; font-size: 20px; color: #fff; background: var(--acc); box-shadow: 3px 3px 0 var(--acc2); }
+        .ol-card-body { display: grid; gap: 3px; min-width: 0; }
+        .ol-badge { justify-self: start; font-size: 11px; font-weight: 800; letter-spacing: .12em; padding: 3px 9px; border-radius: 999px; background: var(--acc); color: #fff; }
+        .ol-card-title { font: 900 23px var(--font-display); line-height: 1.15; letter-spacing: -0.01em; }
+        .ol-card-sub { font-weight: 700; color: var(--muted-foreground); font-size: 15px; }
+        .ol-lines { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-weight: 600; font-size: 15px; }
+        .ol-lines li::before { content: '▸ '; color: var(--red); }
         @keyframes drop { from { transform: translate(var(--tx, 0), -30px); opacity: 0; } }
         .ol-duel { --tx: -50%; }
       `}</style>

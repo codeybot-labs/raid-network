@@ -1,7 +1,20 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import type { AssistantAction, AssistantEvent } from '../../shared/types';
 import { renderMarkdown } from '../lib/markdown';
+import ArrowLeft from 'lucide-solid/icons/arrow-left';
+import ArrowRight from 'lucide-solid/icons/arrow-right';
+import Maximize2 from 'lucide-solid/icons/maximize-2';
+import Sparkles from 'lucide-solid/icons/sparkles';
+import Swords from 'lucide-solid/icons/swords';
+import X from 'lucide-solid/icons/x';
 import './assistant.css';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Card } from './ui/card';
+import { Textarea } from './ui/input';
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
+import { Skeleton } from './ui/skeleton';
+import { Tooltip } from './ui/tooltip';
 
 export type ChatMsg = { role: 'user' | 'assistant'; content: string; actions?: AssistantAction[]; provider?: string; model?: string | null; error?: string; pending?: boolean };
 
@@ -83,7 +96,7 @@ export function AssistantChat(props: { login: string; name?: string; onAction: (
   };
 
   const reset = () => { abort?.abort(); setBusy(false); setMsgs([]); box?.focus(); };
-  const label = (a: AssistantAction) => (a.type === 'raid' ? `⟶ Raid ${a.displayName}` : a.type === 'duel' ? `⚔ Duel ${a.displayName}` : `${a.label} →`);
+  const label = (a: AssistantAction) => (a.type === 'raid' ? `Raid ${a.displayName}` : a.type === 'duel' ? `Duel ${a.displayName}` : a.label);
   const sub = (a: AssistantAction) => (a.type === 'raid' ? `${a.viewers} viewers` : '');
 
   return (
@@ -91,7 +104,7 @@ export function AssistantChat(props: { login: string; name?: string; onAction: (
       <div class="asst-scroll" ref={scroller}>
         <Show when={msgs().length === 0}>
           <div class="asst-hello">
-            <div class="asst-orb">✨</div>
+            <div class="asst-orb"><Sparkles class="size-7" /></div>
             <h3>Hi{props.name ? ` ${props.name}` : ''}, I'm your raid co-pilot</h3>
             <p class="muted">I know your live partners, growth stats, duel record and raid map. I suggest raids and duels as buttons; nothing happens until you tap and confirm.</p>
           </div>
@@ -100,7 +113,7 @@ export function AssistantChat(props: { login: string; name?: string; onAction: (
           {(m) => (
             <div class={`asst-msg ${m.role}`}>
               <Show when={m.role === 'assistant'} fallback={<div class="bubble">{m.content}</div>}>
-                <div class="asst-av">✨</div>
+                <div class="asst-av"><Sparkles class="size-4" /></div>
                 <div class="asst-body">
                   <Show when={m.content} fallback={<Show when={m.pending}><div class="typing"><i /><i /><i /></div></Show>}>
                     <div class="md" innerHTML={renderMarkdown(m.content)} />
@@ -111,15 +124,16 @@ export function AssistantChat(props: { login: string; name?: string; onAction: (
                     <div class="asst-actions">
                       <For each={m.actions}>
                         {(a) => (
-                          <button class={`btn sm ${a.type === 'raid' ? 'violet' : a.type === 'duel' ? '' : 'ghost'}`} onClick={() => props.onAction(a)}>
-                            {label(a)}<Show when={sub(a)}><span class="dim"> · {sub(a)}</span></Show>
-                          </button>
+                          <Button size="sm" variant={a.type === 'raid' ? 'default' : a.type === 'duel' ? 'secondary' : 'outline'} onClick={() => props.onAction(a)}>
+                            {a.type === 'raid' ? <ArrowRight /> : a.type === 'duel' ? <Swords /> : null}
+                            {label(a)}{a.type === 'link' ? <ArrowRight /> : null}<Show when={sub(a)}><span class="opacity-75"> · {sub(a)}</span></Show>
+                          </Button>
                         )}
                       </For>
                     </div>
                   </Show>
                   <Show when={!m.pending && m.provider}>
-                    <div class="asst-meta mono">{m.provider === 'ollama' ? `Ollama · ${m.model}` : m.provider === 'fallback' ? 'AI unavailable · template answer' : 'template mode (no AI key)'}</div>
+                    <div class="asst-meta"><Badge variant="muted" class="font-mono text-[10px]">{m.provider === 'ollama' ? `Ollama · ${m.model}` : m.provider === 'fallback' ? 'AI unavailable · template answer' : 'template mode (no AI key)'}</Badge></div>
                   </Show>
                 </div>
               </Show>
@@ -129,47 +143,39 @@ export function AssistantChat(props: { login: string; name?: string; onAction: (
       </div>
       <div class="asst-foot">
         <div class="asst-chips">
-          <For each={SUGGESTED}>{(s) => <button class="chip prompt" disabled={busy()} onClick={() => send(s)}>{s}</button>}</For>
+          <For each={SUGGESTED}>{(s) => <Button size="sm" variant="soft" class="h-7 px-3 text-xs" disabled={busy()} onClick={() => send(s)}>{s}</Button>}</For>
         </div>
         <form class="asst-input" onSubmit={(e) => { e.preventDefault(); send(input()); }}>
-          <textarea ref={box} rows={1} placeholder="Ask about raids, duels, your stats…" value={input()} maxLength={600}
+          <Textarea ref={box} rows={1} class="min-h-10 resize-none border-0 bg-transparent px-2 shadow-none focus-visible:ring-0" placeholder="Ask about raids, duels, your stats…" value={input()} maxLength={600}
             onInput={(e) => { setInput(e.currentTarget.value); e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = `${Math.min(120, e.currentTarget.scrollHeight)}px`; }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input()); } }} />
-          <Show when={busy()} fallback={<button class="btn primary sm" type="submit" disabled={!input().trim()}>Send</button>}>
-            <button class="btn sm ghost" type="button" onClick={() => { abort?.abort(); setBusy(false); patchLast((m) => ({ ...m, pending: false })); }}>Stop</button>
+          <Show when={busy()} fallback={<Button size="sm" type="submit" disabled={!input().trim()}>Send</Button>}>
+            <Button size="sm" variant="ghost" type="button" onClick={() => { abort?.abort(); setBusy(false); patchLast((m) => ({ ...m, pending: false })); }}>Stop</Button>
           </Show>
         </form>
         <div class="asst-tools">
           <span class="dim">Suggestions only: raids & invites need your confirmation.</span>
-          <Show when={msgs().length}><button class="linkish" onClick={reset}>New chat</button></Show>
+          <Show when={msgs().length}><Button variant="link" size="sm" class="h-auto p-0 text-xs" onClick={reset}>New chat</Button></Show>
         </div>
       </div>
     </div>
   );
 }
 
-/** Slide-out panel used on the dashboard. */
+/** Slide-out panel used on the dashboard (shadcn Sheet: focus trap, Escape and outside click close it). */
 export function AssistantDrawer(props: { open: boolean; login: string; name?: string; onClose: () => void; onAction: (a: AssistantAction) => void }) {
-  onMount(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && props.open) props.onClose(); };
-    window.addEventListener('keydown', key);
-    onCleanup(() => window.removeEventListener('keydown', key));
-  });
   return (
-    <>
-      <div class="asst-scrim" classList={{ open: props.open }} onClick={props.onClose} />
-      <aside class="asst-drawer" classList={{ open: props.open }} aria-hidden={!props.open} aria-label="Assistant">
-        <header class="asst-head">
-          <div><div class="eyebrow">AI co-pilot</div><h2>Assistant</h2></div>
+    <Sheet open={props.open} onOpenChange={(o) => !o && props.onClose()} modal={false}>
+      <SheetContent class="asst-drawer" aria-label="Assistant" onInteractOutside={(e) => { if ((e.target as Element | null)?.closest?.('[data-sonner-toaster]')) e.preventDefault(); else props.onClose(); }}>
+        <SheetHeader>
+          <div><div class="eyebrow">AI co-pilot</div><SheetTitle class="mt-1 text-[22px]">Assistant</SheetTitle></div>
           <span class="spacer" />
-          <a class="btn sm ghost" href="/assistant/" title="Open full page">⤢</a>
-          <button class="btn sm ghost" onClick={props.onClose} aria-label="Close">✕</button>
-        </header>
-        <Show when={props.open}>
-          <AssistantChat login={props.login} name={props.name} onAction={props.onAction} variant="drawer" autofocus />
-        </Show>
-      </aside>
-    </>
+          <Tooltip content="Open full page"><Button as="a" size="icon" variant="ghost" href="/assistant/" aria-label="Open full page"><Maximize2 /></Button></Tooltip>
+          <SheetClose as={Button} size="icon" variant="ghost" aria-label="Close"><X /></SheetClose>
+        </SheetHeader>
+        <AssistantChat login={props.login} name={props.name} onAction={props.onAction} variant="drawer" autofocus />
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -183,17 +189,17 @@ export default function AssistantPage() {
   };
   return (
     <main class="wrap asst-page">
-      <Show when={me()} fallback={<div class="skeleton" style={{ height: '70vh' }} />}>
-        <Show when={me()!.viewer} fallback={<div class="panel empty"><h2>Sign in to use the assistant</h2><a class="btn primary" href="/auth/login">Sign in with Twitch</a></div>}>
+      <Show when={me()} fallback={<Skeleton class="h-[70vh]" />}>
+        <Show when={me()!.viewer} fallback={<Card class="empty"><h2>Sign in to use the assistant</h2><Button as="a" href="/auth/login">Sign in with Twitch</Button></Card>}>
           {(v) => (
-            <div class="panel asst-page-panel">
+            <Card class="asst-page-panel">
               <header class="asst-head">
                 <div><div class="eyebrow">AI co-pilot</div><h2>Assistant</h2></div>
                 <span class="spacer" />
-                <a class="btn sm ghost" href="/dashboard/">← Dashboard</a>
+                <Button as="a" size="sm" variant="ghost" href="/dashboard/"><ArrowLeft /> Dashboard</Button>
               </header>
               <AssistantChat login={v().login} name={v().displayName} onAction={act} variant="page" autofocus />
-            </div>
+            </Card>
           )}
         </Show>
       </Show>

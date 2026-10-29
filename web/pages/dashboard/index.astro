@@ -1,8 +1,9 @@
 ---
 import Base from '../../layouts/Base.astro';
+import { buttonVariants } from '../../components/ui/variants';
 import Dashboard from '../../components/Dashboard';
 ---
 <Base title="Dashboard · Raid Network" active="dashboard">
-  <a slot="right" class="btn sm ghost" href="/auth/logout">Sign out</a>
+  <a slot="right" class={buttonVariants({ variant: 'ghost', size: 'sm' })} href="/auth/logout">Sign out</a>
   <Dashboard client:only="solid-js" />
 </Base>

@@ -49,7 +49,7 @@ function ClockBox(props: { s: DuelState; clock: Clock; label: string; vs?: strin
 function Feed(props: { s: DuelState; variant?: Variant; showChannel?: boolean }) {
   return (
     <Show when={props.variant !== 'overlay' || props.s.status === 'live'}>
-      <div class="feed">
+      <div class="feed" aria-label="Live chat">
         <For each={props.s.feed.slice(0, props.variant === 'overlay' ? 5 : 10)}>
           {(f) => <span class={`feed-item ${f.side}`}><b>{f.login}</b> {f.text}<Show when={props.showChannel && f.channel}><i class="mono"> @{f.channel}</i></Show></span>}
         </For>

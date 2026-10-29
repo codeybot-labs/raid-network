@@ -19,15 +19,24 @@
   "dependencies": {
     "@astrojs/solid-js": "^7.1.2",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@fontsource-variable/manrope": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "@fontsource-variable/unbounded": "^5.3.0",
+    "@kobalte/core": "^0.13.14",
     "astro": "^7.4.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "hono": "^4.13.14",
-    "solid-js": "^1.9.17"
+    "lucide-solid": "^1.64.0",
+    "solid-js": "^1.9.17",
+    "solid-sonner": "^0.3.3",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
     "@cloudflare/workers-types": "^5.20261029.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
     "typescript": "^6.0.3",
     "wrangler": "^4.155.0"
   }
