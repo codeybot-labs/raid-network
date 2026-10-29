@@ -44,7 +44,14 @@
     // Comma-separated Twitch game ids always cached by the cron, in addition to signed-in users' games.
     "TRACKED_GAME_IDS": "",
     // Helix pages (100 streams each) fetched per game per cron run. Small streamers sit at the tail.
-    "MAX_STREAM_PAGES": "10"
+    "MAX_STREAM_PAGES": "10",
+    // AI (Ollama Cloud). Only used when the OLLAMA_API_KEY secret is set; otherwise template replies.
+    "OLLAMA_HOST": "https://ollama.com",
+    "OLLAMA_MODEL": "gemma4:31b",
+    // Per channel per UTC day: AI chat messages (welcomes, !recap, duel lines, !ask). Streamers can lower it on the dashboard.
+    "AI_DAILY_CAP": "150",
+    // Assistant questions per streamer per UTC day.
+    "AI_ASSISTANT_DAILY": "200"
   },
 
   "observability": { "enabled": true, "head_sampling_rate": 0.1 }

@@ -8,3 +8,8 @@ EVENTSUB_SECRET=change-me-to-a-long-random-string
 TOKEN_ENC_KEY=
 # Optional: Twitch user id of a bot account that reads/sends chat. Defaults to the broadcaster.
 BOT_USER_ID=
+# Optional: Ollama Cloud API key (https://ollama.com/settings/keys). Empty = template replies, no AI calls.
+OLLAMA_API_KEY=
+# Optional overrides (defaults live in wrangler.jsonc vars):
+# OLLAMA_MODEL=gemma4:31b
+# AI_IN_DEMO=true   # use Ollama even with DEMO_MODE=true (only if OLLAMA_API_KEY is set)

@@ -1,7 +1,9 @@
 import { DurableObject } from 'cloudflare:workers';
 import { duelStub, isDemo, type Env } from '../env';
-import type { BotMessageStatus, ChannelRef, ChatMessage, ClipInfo, DuelStatus, OverlayEvent, RaidWelcome, StreamInfo, TimelinePoint } from '../../shared/types';
-import { sendBotChat, welcomeText } from '../lib/chatbot';
+import type { AiChatStatus, AiFeature, AiSettings, BotMessageStatus, ChannelRef, ChatMessage, ClipInfo, DuelStatus, OverlayEvent, RaidWelcome, StreamInfo, TimelinePoint } from '../../shared/types';
+import { isBlocked } from '../lib/ai';
+import { sendBotChat } from '../lib/chatbot';
+import { aiAsk, aiRecap, aiWelcome, getAiSettings, templateWelcome, utcDay, type AskCtx } from '../lib/cohost';
 import { makeClip } from '../lib/clips';
 import { demoFindStream, demoStreams, ensureDemoSeed } from '../lib/demo';
 import { DEMO_POOL_AFTER_SEED, ensureDemoGrowthSeed, recapMessage, streamReport, synthStreamActivity } from '../lib/growth';
@@ -28,6 +30,12 @@ const RECAP_COOLDOWN_MS = 60_000;
 const WELCOME_REPEAT_MS = 5 * 60_000;
 const OFFLINE_RECHECK_MS = 5 * 60_000;
 const TIMELINE_MAX = 24 * 60;
+/** AI chat rate limits: at most one AI message per channel every 20s, one !ask answer per viewer per minute. */
+export const AI_MIN_GAP_MS = 20_000;
+export const ASK_USER_COOLDOWN_MS = 60_000;
+const AI_SETTINGS_TTL_MS = 30_000;
+
+interface AiState { lastAt: number; day: string; count: number }
 
 export interface ChatResult {
   routed: number;
@@ -36,7 +44,8 @@ export interface ChatResult {
   streamId: string | null;
   hype: HypeCheck | null;
   clip: ClipInfo | null;
-  recap: { status: BotMessageStatus; text?: string } | null;
+  recap: { status: BotMessageStatus; text?: string; ai?: boolean } | null;
+  ask: { status: AiChatStatus; text?: string; ai?: boolean } | null;
 }
 
 /**
@@ -63,11 +72,15 @@ export class OverlayDO extends DurableObject<Env> {
   private demoOffline = false;
   private lastActivityAt = 0;
   private welcomed = new Map<string, number>();
+  private ai: AiState = { lastAt: 0, day: '', count: 0 };
+  private askCooldown = new Map<string, number>();
+  private aiSettings: { at: number; s: AiSettings } | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
-      const got = await ctx.storage.get(['channel', 'channelId', 'activeDuelId', 'session', 'timeline', 'demoOffline']);
+      const got = await ctx.storage.get(['channel', 'channelId', 'activeDuelId', 'session', 'timeline', 'demoOffline', 'ai']);
+      this.ai = (got.get('ai') as AiState) ?? this.ai;
       this.channel = (got.get('channel') as string) ?? '';
       this.channelId = (got.get('channelId') as string) ?? '';
       this.activeDuelId = (got.get('activeDuelId') as string) ?? null;
@@ -276,11 +289,97 @@ export class OverlayDO extends DurableObject<Env> {
     return s?.streamId ?? null;
   }
 
-  /** Demo/test helper: clear clip, recap and welcome cooldowns. */
-  async resetCooldowns(): Promise<void> {
+  /** Demo/test helper: clear clip, recap, welcome and AI cooldowns (and today's AI count unless keepDaily). */
+  async resetCooldowns(opts: { keepDaily?: boolean } = {}): Promise<void> {
     if (this.session) { this.session.lastClipAt = 0; this.session.lastRecapAt = 0; await this.ctx.storage.put('session', this.session); }
     this.welcomed.clear();
     this.hype = new HypeDetector();
+    this.askCooldown.clear();
+    this.ai = { ...this.ai, lastAt: 0, ...(opts.keepDaily ? {} : { count: 0 }) };
+    this.aiSettings = null;
+    await this.ctx.storage.put('ai', this.ai);
+  }
+
+  // ---------------------------------------------------------------- AI co-host ----------------------------------------------------------------
+
+  /** Dashboard toggles changed: drop the cached settings. */
+  async aiSettingsChanged(): Promise<void> {
+    this.aiSettings = null;
+  }
+
+  /** AI chat messages sent today (UTC) by this channel. */
+  async aiUsedToday(): Promise<number> {
+    return this.ai.day === utcDay() ? this.ai.count : 0;
+  }
+
+  private async settings(): Promise<AiSettings | null> {
+    if (!this.channelId) return null;
+    if (!this.aiSettings || Date.now() - this.aiSettings.at > AI_SETTINGS_TTL_MS) this.aiSettings = { at: Date.now(), s: await getAiSettings(this.env, this.channelId) };
+    return this.aiSettings.s;
+  }
+
+  /**
+   * May this channel send an AI chat message for `feature` now? Takes the slot when it may
+   * (per-channel 20s gap + daily cap). Callers fall back to their template (or stay quiet) otherwise.
+   */
+  private async aiGate(feature: AiFeature): Promise<'ok' | 'disabled' | 'rate-limited' | 'daily-cap'> {
+    const st = await this.settings();
+    if (!st || !st[feature]) return 'disabled';
+    const now = Date.now();
+    const day = utcDay(now);
+    if (this.ai.day !== day) this.ai = { lastAt: this.ai.lastAt, day, count: 0 };
+    if (this.ai.count >= st.dailyCap) return 'daily-cap';
+    if (now - this.ai.lastAt < AI_MIN_GAP_MS) return 'rate-limited';
+    this.ai = { lastAt: now, day, count: this.ai.count + 1 };
+    await this.ctx.storage.put('ai', this.ai);
+    return 'ok';
+  }
+
+  /** DuelDO host line (round start / result) for this channel's chat. The line is generated once per duel event. */
+  async duelLine(channel: ChannelRef, text: string): Promise<{ status: AiChatStatus; text?: string }> {
+    await this.setChannel(channel);
+    const gate = await this.aiGate('duel');
+    if (gate !== 'ok') return { status: gate };
+    const sent = await sendBotChat(this.env, { channelId: channel.id, streamId: this.session?.streamId, kind: 'duel', text });
+    return { status: sent.status, text: sent.text };
+  }
+
+  private async askContext(): Promise<AskCtx> {
+    const s = this.session;
+    let game = s?.gameName ?? null;
+    let title = s?.title ?? null;
+    if (!s && isDemo(this.env)) { const d = demoFindStream(this.channel); game = d?.gameName ?? null; title = d?.title ?? null; }
+    const raiders = await this.env.DB.prepare('SELECT DISTINCT from_name FROM raids WHERE to_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT 3')
+      .bind(this.channelId, s?.startedAt ?? Date.now() - 6 * 3600_000).all<{ from_name: string }>();
+    let duel: string | null = null;
+    if (this.activeDuelId) {
+      const d = await duelStub(this.env, this.activeDuelId).getState().catch(() => null);
+      if (d && ['countdown', 'live'].includes(d.status)) {
+        duel = `Duel ${d.status === 'live' ? 'live' : 'starting'}: ${d.sides.map((x) => `${x.name} ${x.score}`).join(' vs ')}. ${d.mode === 'tug' ? 'Type !pull' : `Vote !1-!${d.options.length}`} to help!`;
+      }
+    }
+    return {
+      streamer: demoFindStream(this.channel)?.displayName ?? this.channel, login: this.channel, game, title,
+      uptimeMs: s ? Date.now() - s.startedAt : null, viewers: await this.sampleViewers().catch(() => null),
+      duel, recentRaiders: raiders.results.map((r) => r.from_name).filter(Boolean), commands: ['!ask <question>', '!recap', '!pull (duels)', '!1-!4 (polls)'],
+    };
+  }
+
+  /** `!ask <question>`: answered from stream info, per-viewer cooldown + channel AI gate + safety filter. */
+  private async ask(m: ChatMessage, question: string): Promise<{ status: AiChatStatus; text?: string; ai?: boolean }> {
+    const st = await this.settings();
+    if (!st?.ask) return { status: 'disabled' };
+    if (!question || question.length < 2) return { status: 'blocked' };
+    const now = Date.now();
+    if (now - (this.askCooldown.get(m.userId) ?? 0) < ASK_USER_COOLDOWN_MS) return { status: 'cooldown' };
+    if (isBlocked(question)) return { status: 'blocked' };
+    const gate = await this.aiGate('ask');
+    if (gate !== 'ok') return { status: gate };
+    this.askCooldown.set(m.userId, now);
+    if (this.askCooldown.size > 2000) this.askCooldown = new Map([...this.askCooldown].filter(([, t]) => now - t < ASK_USER_COOLDOWN_MS));
+    const { text, ai } = await aiAsk(this.env, question, await this.askContext(), m.displayName ?? m.login);
+    const sent = await sendBotChat(this.env, { channelId: this.channelId, streamId: this.session?.streamId, kind: 'ask', text });
+    return { status: sent.status, text: sent.text, ai };
   }
 
   /** Batched chat messages for this channel (from EventSub or the demo endpoint). */
@@ -288,7 +387,7 @@ export class OverlayDO extends DurableObject<Env> {
     const fresh = msgs.filter((m) => !this.seen.has(m.id));
     for (const m of fresh) this.seen.add(m.id);
     if (this.seen.size > 1000) this.seen = new Set([...this.seen].slice(-500));
-    const out: ChatResult = { routed: fresh.length, counted: 0, duelId: this.activeDuelId, streamId: null, hype: null, clip: null, recap: null };
+    const out: ChatResult = { routed: fresh.length, counted: 0, duelId: this.activeDuelId, streamId: null, hype: null, clip: null, recap: null, ask: null };
     if (!fresh.length) return out;
     await this.setChannel({ id: fresh[0].channelId, login: fresh[0].channelLogin });
 
@@ -313,10 +412,12 @@ export class OverlayDO extends DurableObject<Env> {
       await this.scheduleFlush();
     }
     if (fresh.some((m) => /^!recap\b/i.test(m.text.trim()))) out.recap = await this.recap();
+    const askMsg = fresh.find((m) => /^!ask\b/i.test(m.text.trim()));
+    out.ask = askMsg ? await this.ask(askMsg, askMsg.text.trim().replace(/^!ask\b\s*/i, '').slice(0, 300)) : null;
     return out;
   }
 
-  private async recap(): Promise<{ status: BotMessageStatus; text?: string }> {
+  private async recap(): Promise<{ status: BotMessageStatus; text?: string; ai?: boolean }> {
     const s = this.session;
     if (!s) return { status: 'offline' };
     const now = Date.now();
@@ -325,10 +426,13 @@ export class OverlayDO extends DurableObject<Env> {
     await this.flush();
     const report = await streamReport(this.env, s.streamId);
     if (!report) return { status: 'failed' };
-    const { text, lines } = await recapMessage(this.env, report);
+    const tpl = await recapMessage(this.env, report);
+    let text = tpl.text;
+    let ai = false;
+    if ((await this.aiGate('recap')) === 'ok') ({ text, ai } = await aiRecap(this.env, report, report.clips[0]?.url ?? null));
     const sent = await sendBotChat(this.env, { channelId: s.channelId, streamId: s.streamId, kind: 'recap', text });
-    this.push({ type: 'recap', lines, text });
-    return { status: sent.status, text };
+    this.push({ type: 'recap', lines: tpl.lines, text });
+    return { status: sent.status, text, ai };
   }
 
   /** channel.raid landed on this channel: overlay welcome card + chat shout-out. */
@@ -338,17 +442,20 @@ export class OverlayDO extends DurableObject<Env> {
     const row = await this.env.DB.prepare('SELECT COUNT(*) AS n FROM raids WHERE from_id = ? AND to_id = ?').bind(from.id, to.id).first<{ n: number }>();
     const raidCount = Math.max(1, row?.n ?? 1);
     let game: string | null = null;
-    if (isDemo(this.env)) game = demoFindStream(from.login)?.gameName ?? null;
+    let title: string | null = null;
+    if (isDemo(this.env)) { const d = demoFindStream(from.login); game = d?.gameName ?? null; title = d?.title ?? null; }
     else {
-      try { game = (await getChannelInfo(this.env, from.id))?.game_name || null; } catch { /* optional */ }
+      try { const info = await getChannelInfo(this.env, from.id); game = info?.game_name || null; title = info?.title || null; } catch { /* optional */ }
     }
     const welcome: RaidWelcome = { from, viewers, raidCount, game };
     const last = this.welcomed.get(from.id) ?? 0;
     if (Date.now() - last > WELCOME_REPEAT_MS) {
       this.welcomed.set(from.id, Date.now());
-      const sent = await sendBotChat(this.env, {
-        channelId: to.id, streamId: s?.streamId, kind: 'welcome', text: welcomeText(from.displayName, from.login, viewers, raidCount, game),
-      });
+      const wctx = { fromName: from.displayName, fromLogin: from.login, viewers, raidCount, game, title, toName: to.displayName };
+      let text = templateWelcome(wctx);
+      welcome.ai = false;
+      if ((await this.aiGate('welcome')) === 'ok') { const w = await aiWelcome(this.env, wctx); text = w.text; welcome.ai = w.ai; }
+      const sent = await sendBotChat(this.env, { channelId: to.id, streamId: s?.streamId, kind: 'welcome', text });
       welcome.message = sent.text;
       welcome.status = sent.status;
     } else welcome.status = 'cooldown';

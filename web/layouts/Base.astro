@@ -26,6 +26,7 @@ const { title = 'Raid Network', active = '', bare = false } = Astro.props;
             <a href="/dashboard/" class={active === 'dashboard' ? 'active' : ''}>Dashboard</a>
             <a href="/dashboard/#network" class={active === 'network' ? 'active' : ''}>Network</a>
             <a href="/growth/" class={active === 'growth' ? 'active' : ''}>Growth</a>
+            <a href="/assistant/" class={active === 'assistant' ? 'active' : ''}>Assistant</a>
           </nav>
           <div class="spacer"></div>
           <slot name="right" />

@@ -4,6 +4,8 @@ Find live raid partners at about your size, see who raids whom, and run **chat-v
 
 Runs entirely on **Cloudflare Workers (Workers Paid, $5/mo)** using only the included allowances: one Worker, Static Assets, Durable Objects (SQLite-backed, hibernating WebSockets), D1, KV and a cron trigger. No R2, Queues, Workers AI, Images or Hyperdrive.
 
+Optional **AI co-host + dashboard assistant** via [Ollama Cloud](https://docs.ollama.com/cloud) (an external API called with `fetch`, not a Cloudflare product). Without a key, or in demo mode, it uses deterministic templates, so everything works offline.
+
 ```
 Browser / OBS ──HTTP/WS──▶ Worker (Hono)  ──▶ Static Assets (Astro + SolidJS, ./dist)
                               │  /api/*  /auth/*  /webhooks/eventsub
@@ -37,6 +39,10 @@ Cron */10 ─▶ Helix GET /streams per tracked game ─▶ KV
 | Post-stream growth page `/growth/` (new vs returning chatters, raids in/out, clips, duel results, timeline chart, bot log) | ✅ built |
 | `!recap`: chat reply + overlay card (uptime, raids in, top clip, duels, new chatters), 60 s per-channel cooldown | ✅ built (chat send mocked in demo) |
 | Self-hosted fonts (Fontsource, OFL; no Google Fonts requests) | ✅ built |
+| **Assistant** (`/assistant/` + slide-out panel on the dashboard): streaming chat grounded in your matchmaking, growth report, duel history and raid map; suggests Raid/Duel as buttons that open the normal confirm dialogs | ✅ built (templates without a key) |
+| **AI co-host in Twitch chat**: personalised raid welcomes (raider's game + title), AI `!recap`, duel host lines (round start + winner), AI poll questions, `!ask <question>` | ✅ built (chat send mocked in demo) |
+| AI "why you'd collab" pitch on every match card, cached in KV for 6 h | ✅ built |
+| AI safety and limits: 1 AI message per channel per 20 s, 60 s per-viewer `!ask` cooldown, per-channel daily cap, under 300 chars, ban-word filter, template fallback on any error, dashboard toggles per feature | ✅ built |
 
 ## Run it locally in demo mode (no Twitch account needed)
 
@@ -44,10 +50,17 @@ Cron */10 ─▶ Helix GET /streams per tracked game ─▶ KV
 npm install
 npm run dev          # builds the site, applies D1 migrations locally, starts wrangler dev with DEMO_MODE=true
 # open http://localhost:8787  → "Open dashboard"
-npm run smoke        # in a second terminal: end-to-end checks (matchmaking, raid, map, both duel modes in 1v1, FFA-3/4 and teams 2v2/4v4, signed EventSub, welcomes, auto-clips, !recap, growth report, fonts)
+npm run smoke        # in a second terminal: end-to-end checks (matchmaking, raid, map, both duel modes in 1v1, FFA-3/4 and teams 2v2/4v4, signed EventSub, welcomes, auto-clips, !recap, growth report, AI assistant + co-host in template mode, rate limits, toggles, fonts)
 ```
 
 In demo mode you're signed in as **PixelPaladin** (Stardew Valley, ~40 viewers). Use the banner's "Viewing as" picker to switch to any fake streamer.
+
+- **Assistant walkthrough:** Dashboard → **✨ Assistant** (bottom right) or **✨ Ask AI**, or the **Assistant** tab for the full page. Try the chips: *Who should I raid tonight?*, *Set up a duel with someone my size*, *How did my last stream go?*, *Show my raid network*. Raid/Duel buttons under a reply open the same confirm dialogs as the cards, and nothing is sent until you confirm. The page version hands off to `/dashboard/?raid=<login>` or `?duel=<login>`. History is kept per tab (sessionStorage).
+- **AI co-host walkthrough:** the *AI co-host* panel on the dashboard toggles each feature and sets the daily cap. Then try the chat features:
+  ```bash
+  curl -XPOST localhost:8787/api/demo/chat -H 'content-type: application/json' -d '{"channel":"pixelpaladin","messages":[{"user":"fan1","text":"!ask what game is this?"}]}'
+  ```
+  The duel dialog's Chat Poll has **✨ Suggest question**. Starting any duel posts a host line in every chat (see `/api/demo/outbox`).
 
 - **Duel walkthrough:** Dashboard → ⚔ Duel on any card → *Send challenge* → (demo) *Accept duel* → *Start duel* → *Run chat simulator*, or send `!pull` or `!1`–`!4` from the demo chat box. Open both overlay URLs (`/overlay/<login>`) in other tabs or as OBS browser sources to watch them update live.
 - **Group duel walkthrough:** Dashboard → **⚔ Group duel** (or ⚔ Duel on a card, then switch format) → pick **Free-for-all** or **Teams** → add channels from the suggestions dropdown or type a Twitch login → (Teams) toggle each pick to A or B and name the teams → pick *Chat Race* (FFA; set the finish line) / *Tug of War* (Teams) or *Chat Poll* → *Send N invites*. With *Demo: invited streamers accept right away* ticked (default) everyone accepts at once; untick it to accept/decline each invite from the duel room (as host in demo) or from the invitee's dashboard (switch "Viewing as"). *▶ Start free-for-all / team battle* (host only) drops anyone still pending, then *Run chat simulator*. The demo chat box has a button per channel, and every participant's `/overlay/<login>` shows the same board.
@@ -69,7 +82,7 @@ In demo mode you're signed in as **PixelPaladin** (Stardew Valley, ~40 viewers).
   ```
   Other demo endpoints: `POST /api/demo/stream {channel, action: "online"|"offline"}`. All `/api/demo/*` routes return 404 unless `DEMO_MODE=true`.
 
-Screenshots: `docs/screenshots/growth.png`, `docs/screenshots/overlay-cards.png` (and the full 1080p frame `overlay-cards-1080p.png`), group duel boards at 1080p: `overlay-ffa-1080p.png` (4-lane race), `overlay-ffa-poll-1080p.png`, `overlay-teams-1080p.png` (4v4 team tug).
+Screenshots: `docs/screenshots/growth.png`, `docs/screenshots/overlay-cards.png` (and the full 1080p frame `overlay-cards-1080p.png`), group duel boards at 1080p: `overlay-ffa-1080p.png` (4-lane race), `overlay-ffa-poll-1080p.png`, `overlay-teams-1080p.png` (4v4 team tug). AI: `assistant-panel-1080p.png` (dashboard slide-out with raid + duel suggestions), `assistant-page-1080p.png` (`/assistant/`), `assistant-duel-handoff-1080p.png` (an assistant button opening the normal duel dialog), `dashboard-pitches-1080p.png` and `match-card-pitch.png` (collab pitch), `ai-cohost-settings.png`.
 
 Scripts: `npm run typecheck` (tsc for the worker + `astro check`), `npm run build`, `npm run deploy`.
 
@@ -105,6 +118,7 @@ npx wrangler secret put TWITCH_CLIENT_SECRET
 npx wrangler secret put EVENTSUB_SECRET     # random 10-100 chars
 npx wrangler secret put TOKEN_ENC_KEY       # node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 npx wrangler secret put BOT_USER_ID         # optional bot account id for reading/sending chat
+npx wrangler secret put OLLAMA_API_KEY      # optional: turns on AI (see "AI co-host and assistant")
 ```
 **Chat messages (welcomes, `!recap`):** if `BOT_USER_ID` is set, messages go out with the app access token and `sender_id = BOT_USER_ID`. The bot account must have authorized the app with `user:bot` and `user:write:chat`, and each broadcaster grants `channel:bot`, which is in the sign-in scopes. Without `BOT_USER_ID`, messages are sent with the broadcaster's own user token, so they appear as the streamer. Every attempt is logged to D1 `bot_messages` with status `sent`, `dropped`, `failed`, `cooldown` or `demo`, and the growth page shows the log.
 
@@ -131,6 +145,24 @@ npm run deploy
 ```
 Sign in with Twitch on the deployed site. Raid Network then subscribes your channel to `stream.online`, `stream.offline`, `channel.raid` (in and out) and `channel.chat.message`. Add `https://<app>/overlay/<your_login>` to OBS as a 1920×1080 browser source.
 
+## AI co-host and assistant (Ollama Cloud)
+
+| | |
+|---|---|
+| Endpoint | `POST https://ollama.com/api/chat` with `Authorization: Bearer $OLLAMA_API_KEY` (`OLLAMA_HOST` overrides the base URL) |
+| Model | `gemma4:31b` by default, set `OLLAMA_MODEL` to any [Ollama Cloud model](https://ollama.com/search?c=cloud), e.g. `gpt-oss:20b`, `gpt-oss:120b` |
+| Provider module | `worker/lib/ai.ts`: `aiComplete` (JSON or text, timeout, `num_predict` cap, never throws) and `aiStream` (NDJSON streaming, strips `<think>`, 15 s first-token / 60 s total timeout). On any error, empty or unsafe output it returns the template answer. |
+| Switching | **No key, or `DEMO_MODE=true` → template provider** (deterministic, offline). Set the key and it switches to Ollama automatically. `AI_IN_DEMO=true` also uses Ollama in demo mode. |
+
+**Enable it locally:** put `OLLAMA_API_KEY=<key>` in `.dev.vars` (ignored by git) and run `npm run dev:live`, or `npm run dev` with `AI_IN_DEMO=true` also in `.dev.vars`. `GET /api/dev/ai` (DEV_TOOLS only) makes one tiny call and reports `{provider, model, ok, ms, error}` without the key. The dashboard's *AI co-host* chip shows `Ollama · <model>` once it's active. **In production:** `npx wrangler secret put OLLAMA_API_KEY`.
+
+What it does:
+- **Assistant** (`POST /api/assistant`, NDJSON events `meta → delta* → actions? → done`): the server detects the intent (raid, duel with X, growth, network, duel record, help), builds context from matchmaking (top 8), the last finished stream's report, the last 10 duels and raid-graph stats, then streams the answer. Raid/Duel/link **actions are buttons only**: the endpoint never raids or creates a duel. 200 questions/streamer/day (`AI_ASSISTANT_DAILY`).
+- **Chat co-host** (through the same `sendBotChat` path as welcomes): raid welcome (raider name, game, title, `twitch.tv/<login>` always kept), `!recap` (keeps the real numbers), duel host lines at go-live and at the finish (one generation per duel event, posted to each channel that has it on), poll questions (`POST /api/ai/poll-question`), and `!ask <question>` (the question is treated as untrusted text, and the answer uses stream info only).
+- **Collab pitches** (`GET /api/ai/pitches`): one batched JSON call for the top 12 matches, cached per pair in KV (`pitch:v1:…`) for 6 h. Template fallbacks are cached for 10 min.
+
+Limits and safety: ≤1 AI chat message per channel per 20 s (OverlayDO memory, no storage per message), 60 s per-viewer `!ask` cooldown, a per-channel daily cap (`AI_DAILY_CAP`, default 150, editable 0–1000 on the dashboard), messages trimmed to <300 chars on a word boundary, markdown and leading `/` or `.` commands stripped, and a ban-word filter (slurs, profanity, insults; leetspeak-normalised) on both the question and the answer. The system prompt forbids insults and negativity. A rate-limited, capped or failed AI welcome or recap still goes out as the classic template. Toggles: `GET/POST /api/ai/settings` (D1 `ai_settings`, everything on by default), and usage is counted in D1 `ai_usage`.
+
 ## Staying inside the $5 plan
 - Matchmaking reads the KV cache, never Helix per page view. The cron makes about 6 runs/hour × tracked games × up to `MAX_STREAM_PAGES` Helix calls.
 - Overlay/duel sockets use the **WebSocket Hibernation API** with auto-response pings, so idle overlays don't keep DOs billed for duration.
@@ -139,6 +171,7 @@ Sign in with Twitch on the deployed site. Raid Network then subscribes your chan
 - Hype detection runs in OverlayDO memory, so it costs nothing per message. Helix `/clips` is called at most once per cooldown.
 - The growth report is one `D1.batch` of 7 indexed queries. Fonts are static assets.
 - Chat webhooks aren't deduped through KV (that would cost a KV write per message). OverlayDO dedupes them in memory.
+- AI uses **no Cloudflare AI products**. Calls go to Ollama Cloud over `fetch`, which is billed by Ollama, not Cloudflare (its free plan has usage limits, see ollama.com/pricing). Waiting on the model costs no Worker CPU. An OverlayDO awaiting an 8 s reply counts toward DO duration: even 150 messages/day × 8 s × 128 MB ≈ 150 GB-s/day, about 1% of the 400k GB-s/month included. There are no new cron triggers. Pitches are cached in KV (≤12 writes per streamer per 6 h), settings in D1 are cached in the DO for 30 s, and `ai_usage` is one D1 upsert per assistant question or pitch batch.
 - The included Workers Paid quotas are 10M requests/mo, D1 25B row reads / 50M writes, KV 10M reads / 1M writes, and DO 1M requests + 400k GB-s. A hackathon demo uses a tiny fraction.
 
 ## Layout
@@ -147,10 +180,13 @@ worker/index.ts            Hono routes, auth, page-shell rewrites, cron
 worker/durable/overlay.ts  OverlayDO: overlay socket, chat router, stream session, hype → clips, welcomes, !recap
 worker/durable/duel.ts     DuelDO: board state, votes, alarms, simulator, D1 persistence
 worker/lib/                helix, tokens (AES-GCM), eventsub, matchmaking, streams cache, demo data,
-                           hype.ts (detector), clips.ts, chatbot.ts (welcome/recap send), growth.ts (reports, recap, demo seed)
+                           hype.ts (detector), clips.ts, chatbot.ts (welcome/recap send), growth.ts (reports, recap, demo seed),
+                           ai.ts (Ollama provider + safety filter), cohost.ts (chat AI + templates, settings, quotas),
+                           assistant.ts (assistant context, intents, template answers)
 migrations/                0001_init.sql, 0002_growth.sql (streams, chatters, stream_chatters, bot_messages, clip columns),
-                           0003_multi_duels.sql (duels.format/race_target/results, duel_channels invites + per-channel scores)
-web/                       Astro pages + SolidJS islands (Dashboard, RaidMap, DuelRoom, DuelBoard, Overlay, Growth)
+                           0003_multi_duels.sql (duels.format/race_target/results, duel_channels invites + per-channel scores),
+                           0004_ai.sql (ai_settings, ai_usage)
+web/                       Astro pages + SolidJS islands (Dashboard, RaidMap, DuelRoom, DuelBoard, Overlay, Growth, Assistant, AiCohost)
 shared/types.ts            types shared by worker and UI
 scripts/smoke.mjs          end-to-end demo checks; scripts/fake-eventsub.mjs signs test webhooks
 ```
@@ -158,6 +194,8 @@ scripts/smoke.mjs          end-to-end demo checks; scripts/fake-eventsub.mjs sig
 Notes and limits:
 - Hype buckets and welcome cooldowns live in DO memory. If the DO is evicted (no chat for a while), the baseline restarts, which can only delay a clip, never cause a spurious one. Session state and clip/recap cooldowns are kept in DO storage.
 - Anyone in chat can trigger `!recap`; the 60 s per-channel cooldown limits it.
+- The 20 s AI gap is shared by every AI feature in a channel, so a duel host line right after an AI welcome is skipped rather than queued. The overlay still shows the duel, and the classic template welcome or recap is used instead of being dropped.
+- AI context is the streamer's own data. The model never sees tokens or other streamers' private stats. `!ask` answers are limited to public stream info (game, title, uptime, viewers, duel, recent raiders, commands).
 - Team totals are raw sums, so with uneven teams the bigger side has more chatters to pull with (by design: 'uneven teams allowed'). The demo simulator normalizes this; real chat doesn't.
 - Group duels in live mode need every participant signed in to Raid Network (so their `channel.chat.message` subscription exists); inviting by login uses the app token to look up the channel. A 1v1 still lets either side start; FFA/Teams only the host.
 - Stream sessions start on `stream.online`, or lazily on first chat, using the KV live cache or Helix. They end on `stream.offline`.

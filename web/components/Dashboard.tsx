@@ -1,6 +1,9 @@
-import { createResource, createSignal, For, Show } from 'solid-js';
-import type { Match, MatchmakingResponse, Viewer } from '../../shared/types';
+import { createEffect, createResource, createSignal, For, Show } from 'solid-js';
+import type { AssistantAction, Match, MatchmakingResponse, Viewer } from '../../shared/types';
 import { api, fmtNum } from '../lib/api';
+import AiCohostPanel from './AiCohost';
+import { AssistantDrawer } from './Assistant';
+import './assistant.css';
 import Avatar from './Avatar';
 import RaidMap from './RaidMap';
 import { toast, Toasts } from './Toasts';
@@ -17,8 +20,40 @@ export default function Dashboard() {
   const [mm, { refetch }] = createResource(() => me()?.viewer, () => api<MatchmakingResponse>('/api/matchmaking'));
   const [duels, duelsCtl] = createResource(() => me()?.viewer, () => api<{ duels: DuelRow[] }>('/api/duels'));
   const [raidTarget, setRaidTarget] = createSignal<Match | null>(null);
-  const [duelTarget, setDuelTarget] = createSignal<{ m: Match | null } | null>(null);
+  const [duelTarget, setDuelTarget] = createSignal<{ m: Match | null; initial?: DuelPick } | null>(null);
   const [mapKey, setMapKey] = createSignal(0);
+  const [asstOpen, setAsstOpen] = createSignal(false);
+  const [pitchOn, setPitchOn] = createSignal(0);
+  type Pitches = { enabled: boolean; pitches: Record<string, { text: string; ai: boolean }> };
+  const [pitches] = createResource(() => (mm() ? `${mm()!.matches.map((m) => m.stream.id).join(',')}|${pitchOn()}` : false),
+    () => api<Pitches>('/api/ai/pitches').catch(() => ({ enabled: false, pitches: {} }) as Pitches));
+
+  // Assistant buttons (drawer, or ?raid= / ?duel= from the /assistant page) open the normal confirm dialogs.
+  const openRaid = (login: string) => {
+    const m = mm()?.matches.find((x) => x.stream.login === login);
+    if (m) setRaidTarget(m); else toast(`${login} isn't in your live partner list right now`, true);
+  };
+  const openDuel = (p: DuelPick) => {
+    const m = mm()?.matches.find((x) => x.stream.login === p.login) ?? null;
+    setDuelTarget(m ? { m } : { m: null, initial: p });
+  };
+  const onAction = (a: AssistantAction) => {
+    if (a.type === 'raid') openRaid(a.login);
+    else if (a.type === 'duel') openDuel({ id: a.id, login: a.login, displayName: a.displayName });
+    else if (a.href.startsWith('/dashboard/#')) { setAsstOpen(false); document.querySelector(a.href.slice(11))?.scrollIntoView({ behavior: 'smooth' }); }
+    else location.href = a.href;
+  };
+  let handledParams = false;
+  createEffect(() => {
+    if (handledParams || !mm()) return;
+    handledParams = true;
+    const q = new URLSearchParams(location.search);
+    const raid = q.get('raid'); const duel = q.get('duel');
+    if (q.get('assistant') === '1') setAsstOpen(true);
+    if (raid) openRaid(raid.toLowerCase());
+    else if (duel) openDuel({ login: duel.toLowerCase(), displayName: duel });
+    if (raid || duel || q.has('assistant')) history.replaceState(null, '', location.pathname + location.hash);
+  });
 
   const respond = async (id: string, action: 'accept' | 'decline') => {
     try { await api(`/api/duels/${id}/${action}`, { json: {} }); duelsCtl.refetch(); toast(action === 'accept' ? 'Duel accepted' : 'Duel declined'); }
@@ -112,6 +147,7 @@ export default function Dashboard() {
               <div class="eyebrow">Matchmaking</div>
               <h2>Live partners in {mm()?.gameName ?? '…'}</h2>
             </div>
+            <button class="btn sm ghost" onClick={() => setAsstOpen(true)}>✨ Ask AI</button>
             <button class="btn sm violet" onClick={() => setDuelTarget({ m: null })} disabled={!mm()}>⚔ Group duel</button>
             <span class="dim mono">{mm() ? (mm()!.cacheAge >= 0 ? `cache ${Math.round(mm()!.cacheAge / 1000)}s old` : 'cache warming') : ''}</span>
           </section>
@@ -120,10 +156,13 @@ export default function Dashboard() {
             <Show when={mm() && mm()!.matches.length === 0}><div class="panel empty">Nobody in your size range is live in this category right now. Check back in a few minutes.</div></Show>
             <div class="grid">
               <For each={mm()?.matches}>
-                {(m, i) => <MatchCard m={m} rank={i() + 1} base={mm()!.baseViewers} onRaid={() => setRaidTarget(m)} onDuel={() => setDuelTarget({ m })} />}
+                {(m, i) => <MatchCard m={m} rank={i() + 1} base={mm()!.baseViewers} onRaid={() => setRaidTarget(m)} onDuel={() => setDuelTarget({ m })}
+                  pitch={pitches()?.enabled === false ? null : pitches.loading ? undefined : pitches()?.pitches[m.stream.id]?.text ?? null} />}
               </For>
             </div>
           </Show>
+
+          <AiCohostPanel onChange={() => setPitchOn((n) => n + 1)} />
 
           <section id="network" class="panel network">
             <div class="panel-head">
@@ -135,13 +174,24 @@ export default function Dashboard() {
         </Show>
       </main>
       <Show when={raidTarget()}>{(t) => <RaidModal m={t()} onClose={() => setRaidTarget(null)} onDone={() => { setRaidTarget(null); setMapKey((k) => k + 1); refetch(); }} />}</Show>
-      <Show when={duelTarget()}>{(t) => <DuelModal m={t().m} matches={mm()?.matches ?? []} demo={!!me()?.demo} onClose={() => setDuelTarget(null)} />}</Show>
+      <Show when={duelTarget()}>{(t) => <DuelModal m={t().m} initial={t().initial} matches={mm()?.matches ?? []} demo={!!me()?.demo} onClose={() => setDuelTarget(null)} />}</Show>
+      <Show when={me()?.viewer}>
+        {(v) => (
+          <>
+            <Show when={!asstOpen()}><button class="asst-fab" onClick={() => setAsstOpen(true)}>✨ Assistant</button></Show>
+            <AssistantDrawer open={asstOpen()} login={v().login} name={v().displayName} onClose={() => setAsstOpen(false)} onAction={onAction} />
+          </>
+        )}
+      </Show>
       <Toasts />
     </>
   );
 }
 
-function MatchCard(props: { m: Match; rank: number; base: number; onRaid: () => void; onDuel: () => void }) {
+type DuelPick = { id?: string; login: string; displayName: string };
+
+/** pitch: string = show it, undefined = loading, null = off/none. */
+function MatchCard(props: { m: Match; rank: number; base: number; onRaid: () => void; onDuel: () => void; pitch?: string | null }) {
   const s = () => props.m.stream;
   // Position on a log scale from 0.5x (0%) to 2x (100%).
   const pos = () => Math.max(0, Math.min(100, ((Math.log2(props.m.ratio) + 1) / 2) * 100));
@@ -160,6 +210,9 @@ function MatchCard(props: { m: Match; rank: number; base: number; onRaid: () => 
         <div class="ratio-track"><span class="ratio-mid" /><span class="ratio-dot" style={{ left: `${pos()}%` }} /></div>
         <div class="ratio-labels mono dim"><span>0.5×</span><span>you</span><span>2×</span></div>
       </div>
+      <Show when={props.pitch !== null}>
+        <p class="pitch" classList={{ loading: props.pitch === undefined }}><b>✨</b><span>{props.pitch ?? 'Writing a collab pitch…'}</span></p>
+      </Show>
       <ul class="reasons"><For each={props.m.reasons}>{(r) => <li>{r}</li>}</For></ul>
       <div class="tags"><For each={s().tags.slice(0, 4)}>{(t) => <span class="chip">{t}</span>}</For></div>
       <div class="actions">
@@ -201,8 +254,8 @@ type Format = '1v1' | 'ffa' | 'teams';
 const MAX_TEAM = 4;
 
 /** Create a duel: 1v1, a 3-4 channel free-for-all, or Team A vs Team B (up to 4 each). */
-function DuelModal(props: { m: Match | null; matches: Match[]; demo: boolean; onClose: () => void }) {
-  const first = props.m?.stream;
+function DuelModal(props: { m: Match | null; initial?: DuelPick; matches: Match[]; demo: boolean; onClose: () => void }) {
+  const first: DuelPick | undefined = props.m?.stream ?? props.initial;
   const [format, setFormat] = createSignal<Format>('1v1');
   const [mode, setMode] = createSignal<'tug' | 'poll'>('tug');
   const [question, setQuestion] = createSignal('Best cozy game of all time?');
@@ -215,6 +268,14 @@ function DuelModal(props: { m: Match | null; matches: Match[]; demo: boolean; on
   const [loginIn, setLoginIn] = createSignal('');
   const [autoAccept, setAutoAccept] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
+  const [suggesting, setSuggesting] = createSignal(false);
+  const suggest = async () => {
+    setSuggesting(true);
+    try {
+      const r = await api<{ question: string; options: string[] }>('/api/ai/poll-question', { json: { seed: String(Date.now()) } });
+      setQuestion(r.question); setOpts(r.options.join(', '));
+    } catch (e) { toast((e as Error).message, true); } finally { setSuggesting(false); }
+  };
 
   const limit = () => (format() === '1v1' ? 1 : format() === 'ffa' ? 3 : MAX_TEAM * 2 - 1);
   const count = (t: 'a' | 'b') => picks().filter((p) => p.team === t).length + (t === 'a' ? 1 : 0);
@@ -326,7 +387,10 @@ function DuelModal(props: { m: Match | null; matches: Match[]; demo: boolean; on
             </div>
           </Show>
           <Show when={mode() === 'poll'}>
-            <label>Question<input value={question()} onInput={(e) => setQuestion(e.currentTarget.value)} maxLength={120} /></label>
+            <label>
+              <span class="q-label">Question<button type="button" class="linkish" disabled={suggesting()} onClick={suggest}>{suggesting() ? 'Thinking…' : '✨ Suggest question'}</button></span>
+              <input value={question()} onInput={(e) => setQuestion(e.currentTarget.value)} maxLength={120} />
+            </label>
             <label>Options (comma-separated, 2–4)<input value={opts()} onInput={(e) => setOpts(e.currentTarget.value)} /></label>
           </Show>
           <label>Duration: {dur()}s<input type="range" min="20" max="300" step="10" value={dur()} onInput={(e) => setDur(+e.currentTarget.value)} /></label>

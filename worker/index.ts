@@ -12,6 +12,10 @@ import { matchmaking, raidGraph } from './lib/matchmaking';
 import { createSession, demoViewer, destroySession, getViewer } from './lib/session';
 import { getCachedStreams, refreshAllStreams, trackedGames } from './lib/streams';
 import { saveTokens, userToken } from './lib/tokens';
+import { aiComplete, aiConfig, type AiMessage } from './lib/ai';
+import { runAssistant } from './lib/assistant';
+import { aiPitches, aiPollQuestion, getAiSettings, saveAiSettings, takeDailyQuota } from './lib/cohost';
+import type { AiSettings, AiSettingsResponse, AssistantEvent } from '../shared/types';
 
 export { OverlayDO } from './durable/overlay';
 export { DuelDO } from './durable/duel';
@@ -381,8 +385,8 @@ app.post('/api/demo/stream', async (c) => {
 
 app.post('/api/demo/reset-cooldowns', async (c) => {
   if (!isDemo(c.env)) return bad(c, 'demo only', 403);
-  const { channel } = await c.req.json<{ channel: string }>();
-  await overlayStub(c.env, channel).resetCooldowns();
+  const { channel, keepDaily } = await c.req.json<{ channel: string; keepDaily?: boolean }>();
+  await overlayStub(c.env, channel).resetCooldowns({ keepDaily: !!keepDaily });
   return c.json({ ok: true });
 });
 
@@ -412,9 +416,19 @@ app.get('/api/dev/status', async (c) => {
     secretsPresent: {
       TWITCH_CLIENT_ID: !!c.env.TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET: !!c.env.TWITCH_CLIENT_SECRET,
       EVENTSUB_SECRET: !!c.env.EVENTSUB_SECRET, TOKEN_ENC_KEY: !!c.env.TOKEN_ENC_KEY, BOT_USER_ID: !!c.env.BOT_USER_ID,
+      OLLAMA_API_KEY: !!c.env.OLLAMA_API_KEY,
     },
+    ai: aiStatus(c.env),
     appTokenOk, tokenError, ms: Date.now() - t0,
   });
+});
+
+/** One tiny model call to check the Ollama key/model/host. Never returns the key. */
+app.get('/api/dev/ai', async (c) => {
+  const r = await aiComplete(c.env, {
+    messages: [{ role: 'user', content: 'Reply with exactly: Raid Network AI online' }], maxTokens: 20, temperature: 0, timeoutMs: Number(c.req.query('timeoutMs') ?? 12_000),
+  }, () => 'mock: Raid Network AI online');
+  return c.json({ ...aiStatus(c.env), ok: r.ok, ms: r.ms, error: r.error, reply: r.text.slice(0, 120) });
 });
 
 /** Summary of the KV live-streams cache for one game (fills it on a cold miss). */
@@ -456,6 +470,88 @@ app.get('/api/growth', async (c) => {
   const wanted = c.req.query('stream') ?? live ?? streams[0]?.id;
   const report = wanted && streams.some((s) => s.id === wanted) ? await streamReport(c.env, wanted) : null;
   return c.json({ channel: ref, streams, report, demo: isDemo(c.env) } satisfies GrowthResponse);
+});
+
+// ----- AI co-host (Ollama Cloud, or templates without a key) -----
+const aiStatus = (env: Env) => {
+  const cfg = aiConfig(env);
+  return { provider: cfg.provider, model: cfg.provider === 'ollama' ? cfg.model : null, keySet: cfg.keySet, demo: isDemo(env) };
+};
+
+app.get('/api/ai/settings', async (c) => {
+  const v = requireViewer(c);
+  const [settings, usedToday] = await Promise.all([getAiSettings(c.env, v.id), overlayStub(c.env, v.login).aiUsedToday()]);
+  return c.json({ settings, status: aiStatus(c.env), usedToday } satisfies AiSettingsResponse);
+});
+
+app.post('/api/ai/settings', async (c) => {
+  const v = requireViewer(c);
+  const patch = await c.req.json<Partial<AiSettings>>().catch(() => ({}));
+  const settings = await saveAiSettings(c.env, v.id, patch);
+  await overlayStub(c.env, v.login).aiSettingsChanged();
+  return c.json({ settings, status: aiStatus(c.env), usedToday: await overlayStub(c.env, v.login).aiUsedToday() } satisfies AiSettingsResponse);
+});
+
+/**
+ * Assistant chat. Body: { messages: [{ role: 'user' | 'assistant', content }] } (client-side history, last 12 used).
+ * Streams NDJSON AssistantEvents: meta, delta*, actions?, done. Actions are suggestions only.
+ */
+app.post('/api/assistant', async (c) => {
+  const v = requireViewer(c);
+  const body = await c.req.json<{ messages?: { role?: string; content?: unknown }[] }>().catch(() => ({ messages: [] as { role?: string; content?: unknown }[] }));
+  const history: AiMessage[] = (body.messages ?? []).slice(-12)
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: String(m.content).slice(0, 2000) }));
+  if (!history.length || history[history.length - 1].role !== 'user') return bad(c, 'last message must be from the user');
+  const cap = Number(c.env.AI_ASSISTANT_DAILY ?? '200');
+  if (!(await takeDailyQuota(c.env, v.id, 'assistant', cap))) return c.json({ error: `Assistant limit reached for today (${cap} questions). Resets at 00:00 UTC.` }, 429);
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const w = writable.getWriter();
+  const enc = new TextEncoder();
+  const send = (ev: AssistantEvent) => w.write(enc.encode(`${JSON.stringify(ev)}\n`));
+  c.executionCtx.waitUntil((async () => {
+    try { await runAssistant(c.env, v, history, send); }
+    catch (e) { console.error('assistant', e); await send({ type: 'error', error: 'The assistant hit a snag. Try again in a moment.' }).catch(() => {}); await send({ type: 'done', ok: false }).catch(() => {}); }
+    finally { await w.close().catch(() => {}); }
+  })());
+  return new Response(readable, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
+});
+
+/** One-line "why you'd collab" pitch per match (top 12), cached in KV for 6h per pair. */
+const PITCH_TTL_S = 6 * 3600;
+app.get('/api/ai/pitches', async (c) => {
+  const v = requireViewer(c);
+  const st = await getAiSettings(c.env, v.id);
+  if (!st.pitch) return c.json({ enabled: false, pitches: {}, cached: 0, generated: 0 });
+  if (isDemo(c.env)) await ensureDemoSeed(c.env);
+  const mm = await matchmaking(c.env, v);
+  const top = mm.matches.slice(0, 12);
+  const cfg = aiConfig(c.env);
+  const key = (id: string) => `pitch:v1:${cfg.provider}:${v.id}:${id}`;
+  const got = await Promise.all(top.map((m) => c.env.KV.get<{ text: string; ai: boolean }>(key(m.stream.id), 'json')));
+  const pitches: Record<string, { text: string; ai: boolean }> = {};
+  const missing = top.filter((m, i) => (got[i] ? ((pitches[m.stream.id] = got[i]!), false) : true));
+  if (missing.length && cfg.provider === 'ollama' && !(await takeDailyQuota(c.env, v.id, 'pitch', 100))) {
+    return c.json({ enabled: true, pitches, cached: top.length - missing.length, generated: 0, limited: true });
+  }
+  const fresh = missing.length ? await aiPitches(c.env, { displayName: v.displayName, game: mm.gameName, viewers: mm.baseViewers }, missing) : {};
+  // Cache AI results for 6h; template fallbacks only 10 minutes so a model hiccup gets retried soon.
+  c.executionCtx.waitUntil(Promise.all(Object.entries(fresh).map(([id, p]) =>
+    c.env.KV.put(key(id), JSON.stringify(p), { expirationTtl: p.ai ? PITCH_TTL_S : 600 }))).then(() => {}));
+  Object.assign(pitches, fresh);
+  return c.json({ enabled: true, pitches, cached: top.length - missing.length, generated: missing.length, provider: cfg.provider });
+});
+
+/** AI poll question for a duel, about the streamer's current game. */
+app.post('/api/ai/poll-question', async (c) => {
+  const v = requireViewer(c);
+  const st = await getAiSettings(c.env, v.id);
+  if (!st.duel) return bad(c, 'AI duel host is switched off in your AI settings', 403);
+  if (aiConfig(c.env).provider === 'ollama' && !(await takeDailyQuota(c.env, v.id, 'poll', 100))) return c.json({ error: 'Poll question limit reached for today' }, 429);
+  const { seed } = await c.req.json<{ seed?: string }>().catch(() => ({ seed: undefined }));
+  const mm = await matchmaking(c.env, v);
+  const q = await aiPollQuestion(c.env, mm.gameName, String(seed ?? Date.now()));
+  return c.json({ ...q, game: mm.gameName, provider: aiConfig(c.env).provider });
 });
 
 // ---------- Webhooks ----------

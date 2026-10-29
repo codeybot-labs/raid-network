@@ -3,7 +3,7 @@ import type { BotMessageStatus } from '../../shared/types';
 import { appToken, sendChatMessage } from './helix';
 import { userToken } from './tokens';
 
-export type BotKind = 'welcome' | 'recap';
+export type BotKind = 'welcome' | 'recap' | 'ask' | 'duel';
 
 /**
  * Sends a chat message into a channel via Helix POST /chat/messages and logs it to D1 `bot_messages`.

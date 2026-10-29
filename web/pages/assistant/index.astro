@@ -1,0 +1,8 @@
+---
+import Base from '../../layouts/Base.astro';
+import AssistantPage from '../../components/Assistant';
+---
+<Base title="Assistant · Raid Network" active="assistant">
+  <a slot="right" class="btn sm ghost" href="/auth/logout">Sign out</a>
+  <AssistantPage client:only="solid-js" />
+</Base>

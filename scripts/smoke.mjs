@@ -130,6 +130,8 @@ const asUser = async (login) => {
 };
 const post = (path, json, headers = {}) => fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(json) });
 const pool = mm.matches.map((m) => m.stream);
+// Demo viewer counts jitter every 10 min, so the partner list is 9-12 long; wrap instead of assuming 11.
+const P = (i) => pool[i % pool.length];
 const chatIn = (login, msgs) => api('/api/demo/chat', { channel: login, messages: msgs });
 const pullsFrom = (n, prefix) => Array.from({ length: n }, (_, i) => ({ user: `${prefix}_${RUN}_${i}`, text: '!pull' }));
 const sideOf = (st, k) => st.sides.find((x) => x.key === k);
@@ -207,7 +209,7 @@ const toldAll = (ovs, id) => waitFor(() => ovs.every((o) => o.msgs.some((m) => m
 
 // Teams 2v2, Team Tug: every chat on a team pulls the same rope.
 {
-  const [y, x, z] = [pool[7], pool[8], pool[9]]; // y on A with the host, x + z on B
+  const [y, x, z] = [P(7), P(8), P(9)]; // y on A with the host, x + z on B
   const d = (await api('/api/duels', { format: 'teams', mode: 'tug', durationS: 20, teamNames: ['Cozy Crew', 'Night Owls'],
     invites: [{ login: x.login, team: 'b' }, { id: y.id, team: 'a' }, { id: z.id, team: 'b' }] })).duel;
   check(d.format === 'teams' && d.channels.filter((c) => c.side === 'a').length === 2 && d.channels.filter((c) => c.side === 'b').length === 2 && d.a.displayName === 'Cozy Crew',
@@ -270,7 +272,7 @@ const toldAll = (ovs, id) => waitFor(() => ovs.every((o) => o.msgs.some((m) => m
 
 // Decliners and no-shows are dropped when the host starts.
 {
-  const [x, y, z] = [pool[8], pool[9], pool[10] ?? pool[1]];
+  const [x, y, z] = [P(8), P(9), P(10)];
   const d = (await api('/api/duels', { format: 'teams', mode: 'tug', durationS: 20, invites: [{ id: x.id, team: 'b' }, { id: y.id, team: 'b' }, { id: z.id, team: 'a' }] })).duel;
   await api(`/api/duels/${d.id}/decline`, { channelId: y.id });
   const acc = (await api(`/api/duels/${d.id}/accept`, { channelId: x.id })).duel;
@@ -347,6 +349,113 @@ check(og.report?.duels.some((d) => d.id === duel.id && d.myScore === fin?.b.scor
 const on = await api('/api/demo/stream', { channel: opp.stream.login, action: 'online' }, cookie);
 const og2 = await api('/api/growth', undefined, cookie);
 check(og2.report?.live && og2.report.stream.id === on.started && og2.streams[1]?.id === off.ended, 'stream.online → new live session; ended one is in history');
+
+// ---------- AI co-host + assistant (mock provider: no OLLAMA_API_KEY / DEMO_MODE) ----------
+const ALL_ON = { welcome: true, recap: true, duel: true, ask: true, pitch: true, dailyCap: 150 };
+const aiS = await api('/api/ai/settings', ALL_ON);
+check(aiS.status.provider === 'mock' && aiS.status.model === null && aiS.status.demo === true, `AI provider in demo: ${aiS.status.provider} (key set: ${aiS.status.keySet})`);
+check(['welcome', 'recap', 'duel', 'ask', 'pitch'].every((k) => aiS.settings[k] === true) && aiS.settings.dailyCap === 150, 'AI settings: all features on, daily cap 150');
+
+async function assistant(content, history = []) {
+  const res = await fetch(`${BASE}/api/assistant`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [...history, { role: 'user', content }] }) });
+  const evs = (await res.text()).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  return { status: res.status, type: res.headers.get('content-type'), evs, text: evs.filter((e) => e.type === 'delta').map((e) => e.text).join(''),
+    deltas: evs.filter((e) => e.type === 'delta').length, actions: evs.find((e) => e.type === 'actions')?.actions ?? [] };
+}
+const duelsBefore = (await api('/api/duels')).duels.length;
+const raidsBefore = raidsCount(await api('/api/network?scope=all'));
+const mmNow = await api('/api/matchmaking');
+const a1 = await assistant('Who should I raid tonight?');
+check(a1.status === 200 && a1.type.includes('ndjson') && a1.evs[0]?.type === 'meta' && a1.evs[0].intent === 'raid' && a1.evs.at(-1)?.type === 'done' && a1.deltas > 5,
+  `assistant streams NDJSON (${a1.deltas} deltas, intent ${a1.evs[0]?.intent}, provider ${a1.evs[0]?.provider})`);
+const top3 = mmNow.matches.slice(0, 3).map((m) => m.stream.id);
+check(a1.actions.length >= 1 && a1.actions.every((x) => x.type === 'raid' && top3.includes(x.id)) && a1.text.includes(a1.actions[0].displayName),
+  `assistant raid picks grounded in matchmaking: ${a1.actions.map((x) => x.displayName).join(', ')}`);
+const duelTarget = mmNow.matches[2] ?? mmNow.matches[0];
+const a2 = await assistant(`Set up a duel with ${duelTarget.stream.login}`, [{ role: 'user', content: 'Who should I raid tonight?' }, { role: 'assistant', content: a1.text }]);
+check(a2.evs[0]?.intent === 'duel' && a2.actions.length === 1 && a2.actions[0].type === 'duel' && a2.actions[0].login === duelTarget.stream.login,
+  `assistant duel → one "Duel ${a2.actions[0]?.displayName}" button`);
+const a3 = await assistant('How did my last stream go?');
+check(a3.evs[0]?.intent === 'growth' && /Peak viewers/.test(a3.text) && /new/.test(a3.text) && a3.actions.some((x) => x.type === 'link' && x.href.startsWith('/growth/')),
+  'assistant growth answer from the stream report + link');
+const a4 = await assistant('show my raid network');
+check(a4.evs[0]?.intent === 'network' && /Raids in/.test(a4.text), 'assistant raid-network stats');
+check((await api('/api/duels')).duels.length === duelsBefore && raidsCount(await api('/api/network?scope=all')) === raidsBefore,
+  'assistant never raids or invites by itself (duel + raid counts unchanged)');
+const aBad = await fetch(`${BASE}/api/assistant`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [] }) });
+check(aBad.status === 400, `assistant rejects empty history (${aBad.status})`);
+
+const p1 = await api('/api/ai/pitches');
+const pv = Object.values(p1.pitches);
+check(p1.enabled && pv.length === Math.min(12, mmNow.matches.length) && pv.every((x) => x.text.length > 10 && x.text.length <= 140),
+  `collab pitch per match card (${pv.length}): "${pv[0]?.text}"`);
+const p2 = await api('/api/ai/pitches');
+check(p2.cached === pv.length && p2.generated === 0, `pitches cached in KV on 2nd load (${p2.cached} cached, ${p2.generated} generated)`);
+await api('/api/ai/settings', { pitch: false });
+check((await api('/api/ai/pitches')).enabled === false, 'pitch toggle off → no pitches');
+await api('/api/ai/settings', { pitch: true });
+const pq = await api('/api/ai/poll-question', { seed: RUN });
+check(typeof pq.question === 'string' && pq.question.length > 5 && pq.options.length >= 2 && pq.options.length <= 4 && pq.game === mm.gameName,
+  `AI poll question for ${pq.game}: "${pq.question}" [${pq.options?.join(' / ')}]`);
+
+const me = mm.me.login;
+const chat = (msgs) => api('/api/demo/chat', { channel: me, messages: msgs });
+await api('/api/demo/reset-cooldowns', { channel: me });
+const k1 = await chat([{ user: `asker_${RUN}`, text: '!ask what game is this?' }]);
+check(k1.ask?.status === 'demo' && k1.ask.text.startsWith(`@asker_${RUN}`) && k1.ask.text.includes(mm.gameName) && k1.ask.text.length <= 300, `!ask answered: "${k1.ask?.text}"`);
+const k2 = await chat([{ user: `asker_${RUN}`, text: '!ask how long have you been live?' }]);
+check(k2.ask?.status === 'cooldown', `same viewer !ask again → ${k2.ask?.status} (60s per-user cooldown)`);
+const k3 = await chat([{ user: `asker2_${RUN}`, text: '!ask how long have you been live?' }]);
+check(k3.ask?.status === 'rate-limited', `another viewer within 20s → ${k3.ask?.status} (1 AI message / channel / 20s)`);
+await api('/api/demo/reset-cooldowns', { channel: me, keepDaily: true });
+const k3b = await chat([{ user: `asker2_${RUN}`, text: '!ask how long have you been live?' }]);
+check(k3b.ask?.status === 'demo' && /live for \d/.test(k3b.ask.text), `after the gap: "${k3b.ask?.text}"`);
+await api('/api/demo/reset-cooldowns', { channel: me });
+const k4 = await chat([{ user: `troll_${RUN}`, text: '!ask why is the streamer so stupid' }]);
+check(k4.ask?.status === 'blocked', `ban-word filter on !ask → ${k4.ask?.status}`);
+await api('/api/ai/settings', { ask: false });
+const k5 = await chat([{ user: `asker4_${RUN}`, text: '!ask hello?' }]);
+check(k5.ask?.status === 'disabled', `!ask toggle off → ${k5.ask?.status}`);
+await api('/api/ai/settings', { ask: true, dailyCap: 1 });
+await api('/api/demo/reset-cooldowns', { channel: me });
+const k6 = await chat([{ user: `asker5_${RUN}`, text: '!ask what are the commands?' }]);
+await api('/api/demo/reset-cooldowns', { channel: me, keepDaily: true });
+const k7 = await chat([{ user: `asker6_${RUN}`, text: '!ask what are the commands?' }]);
+check(k6.ask?.status === 'demo' && k6.ask.text.includes('!pull') && k7.ask?.status === 'daily-cap', `daily cap 1 → next AI message ${k7.ask?.status}`);
+const used = await api('/api/ai/settings', ALL_ON);
+check(used.usedToday === 1, `AI usage today reported on dashboard (${used.usedToday})`);
+
+await api('/api/demo/reset-cooldowns', { channel: me });
+const wr = mmNow.matches.find((m) => m.stream.login !== opp.stream.login && m.stream.login !== duelTarget.stream.login) ?? mmNow.matches[0];
+const aw = await api('/api/demo/raid', { from: wr.stream.login, to: me });
+check(aw.welcome?.ai === true && aw.welcome.status === 'demo' && aw.welcome.message.includes(wr.stream.displayName) && aw.welcome.message.includes(`twitch.tv/${wr.stream.login}`) && aw.welcome.message.length <= 300,
+  `AI raid welcome uses their game/title: "${aw.welcome?.message}"`);
+await api('/api/ai/settings', { welcome: false });
+await api('/api/demo/reset-cooldowns', { channel: me });
+const aw2 = await api('/api/demo/raid', { from: 'clutchcleo', to: me });
+check(aw2.welcome?.ai !== true && aw2.welcome?.status === 'demo' && aw2.welcome.message.includes('from their VALORANT stream'), 'welcome toggle off → classic template shout-out');
+await api('/api/ai/settings', ALL_ON);
+await api('/api/demo/reset-cooldowns', { channel: me });
+const ar = await chat([{ user: `fan2_${RUN}`, text: '!recap' }]);
+check(ar.recap?.ai === true && ar.recap.status === 'demo' && /Duels \d+W-\d+L/.test(ar.recap.text) && ar.recap.text.length <= 300, `AI !recap (≤300 chars): "${ar.recap?.text}"`);
+
+await api('/api/demo/reset-cooldowns', { channel: me });
+await api('/api/demo/reset-cooldowns', { channel: duelTarget.stream.login });
+const hd = (await api('/api/duels', { opponentId: duelTarget.stream.id, mode: 'tug', durationS: 20 })).duel;
+await api(`/api/duels/${hd.id}/accept`, {});
+await api(`/api/duels/${hd.id}/start`, {});
+let duelMsg = null;
+for (let i = 0; i < 60 && !duelMsg; i++) {
+  await sleep(250);
+  duelMsg = (await api(`/api/demo/outbox?channel=${me}`)).messages.find((m) => m.kind === 'duel' && m.created_at >= hd.createdAt);
+}
+check(!!duelMsg && /!pull/.test(duelMsg.text) && duelMsg.text.length <= 300, `AI duel host line in chat at go-live: "${duelMsg?.text}"`);
+const oppLine = (await api(`/api/demo/outbox?channel=${duelTarget.stream.login}`)).messages.find((m) => m.kind === 'duel' && m.created_at >= hd.createdAt);
+check(!!oppLine, 'duel host line also posted in the opponent chat');
+await api(`/api/duels/${hd.id}/cancel`, {}).catch(() => {});
+const ob = (await api(`/api/demo/outbox?channel=${me}`)).messages;
+check(ob.filter((m) => ['ask', 'duel', 'recap', 'welcome'].includes(m.kind)).every((m) => m.text.length <= 500) && ob.filter((m) => ['ask', 'duel'].includes(m.kind)).every((m) => m.text.length <= 300),
+  'AI chat lines logged to bot_messages and within Twitch limits');
 
 // ---------- Self-hosted fonts ----------
 const html = await (await fetch(`${BASE}/growth/`)).text();

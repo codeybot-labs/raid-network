@@ -24,6 +24,19 @@ export interface Env {
   EVENTSUB_SECRET?: string;
   TOKEN_ENC_KEY?: string;
   BOT_USER_ID?: string;
+
+  // AI co-host (Ollama Cloud). Without OLLAMA_API_KEY (or in DEMO_MODE) a deterministic template provider is used.
+  OLLAMA_API_KEY?: string;
+  /** Default https://ollama.com (Ollama Cloud). */
+  OLLAMA_HOST?: string;
+  /** Cloud model name from https://ollama.com/api/tags. Default gemma4:31b. */
+  OLLAMA_MODEL?: string;
+  /** "true" lets DEMO_MODE use Ollama too when a key is set (e.g. for recording the demo video). */
+  AI_IN_DEMO?: string;
+  /** Default daily cap on AI chat messages per channel (streamers can lower it on the dashboard). */
+  AI_DAILY_CAP?: string;
+  /** Assistant requests per streamer per UTC day. */
+  AI_ASSISTANT_DAILY?: string;
 }
 
 export const isDemo = (env: Env): boolean => env.DEMO_MODE === 'true';

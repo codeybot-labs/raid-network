@@ -177,9 +177,13 @@ export interface RaidWelcome {
   game?: string | null;
   message?: string | null; // chat shout-out text that was sent
   status?: BotMessageStatus;
+  /** true = AI-personalized welcome; false = template (AI off, rate-limited or failed). */
+  ai?: boolean;
 }
 
 export type BotMessageStatus = 'sent' | 'demo' | 'failed' | 'dropped' | 'cooldown' | 'offline';
+/** Outcome of an AI chat feature: a sent message, or why nothing (or only the template) was sent. */
+export type AiChatStatus = BotMessageStatus | 'disabled' | 'rate-limited' | 'daily-cap' | 'blocked';
 
 export type OverlayEvent =
   | { type: 'hello'; channel: string; activeDuelId: string | null }
@@ -227,3 +231,39 @@ export interface GrowthResponse {
   report: GrowthReport | null;
   demo: boolean;
 }
+
+// ---------- AI co-host ----------
+export type AiFeature = 'welcome' | 'recap' | 'duel' | 'ask' | 'pitch';
+export const AI_FEATURES: AiFeature[] = ['welcome', 'recap', 'duel', 'ask', 'pitch'];
+
+export interface AiSettings {
+  welcome: boolean;
+  recap: boolean;
+  duel: boolean;
+  ask: boolean;
+  pitch: boolean;
+  /** Max AI chat messages per channel per UTC day. */
+  dailyCap: number;
+}
+
+export interface AiStatusInfo {
+  provider: 'ollama' | 'mock';
+  model: string | null;
+  keySet: boolean;
+  demo: boolean;
+}
+
+export interface AiSettingsResponse { settings: AiSettings; status: AiStatusInfo; usedToday: number }
+
+/** Buttons the assistant may offer. The user clicks; the assistant never acts on its own. */
+export type AssistantAction =
+  | { type: 'raid'; id: string; login: string; displayName: string; viewers: number; gameName: string }
+  | { type: 'duel'; id?: string; login: string; displayName: string }
+  | { type: 'link'; href: string; label: string };
+
+export type AssistantEvent =
+  | { type: 'meta'; provider: 'ollama' | 'mock'; model: string | null; intent: string }
+  | { type: 'delta'; text: string }
+  | { type: 'actions'; actions: AssistantAction[] }
+  | { type: 'error'; error: string }
+  | { type: 'done'; ok: boolean };

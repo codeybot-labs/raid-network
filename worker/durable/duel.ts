@@ -5,6 +5,7 @@ import {
   type DuelSideState, type DuelState, type Side, type TopChatter,
 } from '../../shared/types';
 import { CHATTER_NOISE, fakeChatter, parseVote } from './chat';
+import { aiDuelLine, duelAiChannels } from '../lib/cohost';
 
 export interface DuelInit {
   id: string;
@@ -312,9 +313,11 @@ export class DuelDO extends DurableObject<Env> {
     const s = this.s;
     if (!s) return;
     const now = Date.now();
+    let wentLive = false;
     if (s.status === 'countdown' && now >= (s.countdownEndsAt ?? 0)) {
       s.status = 'live';
       s.endsAt = now + s.durationS * 1000;
+      wentLive = true;
       await this.setDbStatus();
       await this.notifyOverlays(s.id);
     }
@@ -331,6 +334,29 @@ export class DuelDO extends DurableObject<Env> {
     this.broadcast();
     if (s.status === 'countdown') await this.ctx.storage.setAlarm(s.countdownEndsAt!);
     else if (s.status === 'live') await this.ctx.storage.setAlarm(s.simulate ? Math.min(now + SIM_TICK_MS, s.endsAt!) : s.endsAt!);
+    if (wentLive) await this.hostLines('start');
+  }
+
+  /**
+   * AI duel host: one line (round start / result) generated once, then posted by each participating
+   * channel's OverlayDO, which applies that channel's toggle, 20s gap and daily cap. Never throws.
+   */
+  private async hostLines(kind: 'start' | 'finish'): Promise<void> {
+    try {
+      const s = this.s!;
+      const active = s.channels.filter(ACTIVE);
+      const on = await duelAiChannels(this.env, active.map((c) => c.id));
+      if (!on.size) return;
+      const winner = s.winner && s.winner !== 'tie' ? s.sides.find((x) => x.key === s.winner)?.name ?? null : null;
+      const line = await aiDuelLine(this.env, {
+        kind, format: s.format, mode: s.mode, question: s.question, options: s.options, durationS: s.durationS,
+        sides: s.sides.filter((x) => x.channelIds.length).map((x) => ({ name: x.name, score: x.score })), winner, tie: s.winner === 'tie',
+      });
+      await Promise.allSettled(active.filter((c) => on.has(c.id)).map((c) =>
+        overlayStub(this.env, c.login).duelLine({ id: c.id, login: c.login, displayName: c.displayName }, line.text)));
+    } catch (e) {
+      console.warn('duel host line failed', (e as Error).message);
+    }
   }
 
   /** DEMO chat simulator: every channel's chat sends a burst of commands and noise each second. */
@@ -388,6 +414,8 @@ export class DuelDO extends DurableObject<Env> {
     }
     await this.notifyOverlays(null, 'finished');
     this.broadcast();
+    // finish() can run inside a chat ingest (race finish line): don't hold chat up for the model.
+    this.ctx.waitUntil(this.hostLines('finish'));
   }
 
   /** Tell every participating channel's OverlayDO which duel to show (or to drop it). */
