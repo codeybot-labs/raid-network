@@ -1,7 +1,7 @@
 import { appUrl, isDemo, overlayStub, type Env } from '../env';
 import type { ChatMessage } from '../../shared/types';
 import { hmacSha256Hex, timingSafeEqual } from './crypto';
-import { subscribeEventSub } from './helix';
+import { getChannelInfo, subscribeEventSub } from './helix';
 
 const MAX_AGE_MS = 10 * 60_000;
 export const DEMO_EVENTSUB_SECRET = 'demo-eventsub-secret';
@@ -66,7 +66,8 @@ export async function handleEventSub(env: Env, req: Request, ctx: { waitUntil(p:
       }
       case 'channel.raid': {
         const recent = await env.DB.prepare(
-          "SELECT id FROM raids WHERE from_id = ? AND to_id = ? AND source = 'button' AND created_at > ?",
+          // Merge with the Raid-button row, or with the twin notification (both channels may be subscribed).
+          "SELECT id FROM raids WHERE from_id = ? AND to_id = ? AND source IN ('button', 'eventsub') AND created_at > ?",
         ).bind(e.from_broadcaster_user_id, e.to_broadcaster_user_id, Date.now() - 5 * 60_000).first();
         if (recent) {
           await env.DB.prepare('UPDATE raids SET viewers = ?, source = ? WHERE id = ?').bind(e.viewers, 'eventsub', (recent as { id: number }).id).run();
@@ -77,19 +78,32 @@ export async function handleEventSub(env: Env, req: Request, ctx: { waitUntil(p:
           ).bind(e.from_broadcaster_user_id, e.from_broadcaster_user_login, e.from_broadcaster_user_name,
             e.to_broadcaster_user_id, e.to_broadcaster_user_login, e.to_broadcaster_user_name, e.viewers, Date.now()).run();
         }
-        await overlayStub(env, e.to_broadcaster_user_login).raid(
-          { id: e.from_broadcaster_user_id, login: e.from_broadcaster_user_login, displayName: e.from_broadcaster_user_name }, e.viewers);
+        // Raids *out* need no DO call: the growth page reads them from D1 by time window.
+        if (payload.subscription.condition.to_broadcaster_user_id) {
+          await overlayStub(env, e.to_broadcaster_user_login).raid(
+            { id: e.from_broadcaster_user_id, login: e.from_broadcaster_user_login, displayName: e.from_broadcaster_user_name }, e.viewers,
+            { id: e.to_broadcaster_user_id, login: e.to_broadcaster_user_login, displayName: e.to_broadcaster_user_name });
+        }
         break;
       }
-      case 'stream.online':
+      case 'stream.online': {
         await env.DB.prepare('UPDATE channels SET is_live = 1, started_at = ?, updated_at = ? WHERE id = ?')
           .bind(e.started_at, Date.now(), e.broadcaster_user_id).run();
         await env.KV.delete(`me:stream:${e.broadcaster_user_id}`);
+        let info: { title?: string; game_name?: string } | null = null;
+        try { info = isDemo(env) ? null : await getChannelInfo(env, e.broadcaster_user_id); } catch { /* optional */ }
+        await overlayStub(env, e.broadcaster_user_login).streamOnline({
+          channel: { id: e.broadcaster_user_id, login: e.broadcaster_user_login, displayName: e.broadcaster_user_name },
+          streamId: e.id, startedAt: Date.parse(e.started_at) || Date.now(), title: info?.title ?? null, gameName: info?.game_name ?? null,
+        });
         break;
+      }
       case 'stream.offline':
         await env.DB.prepare('UPDATE channels SET is_live = 0, updated_at = ? WHERE id = ?').bind(Date.now(), e.broadcaster_user_id).run();
         await env.KV.delete(`me:stream:${e.broadcaster_user_id}`);
-        // TODO(growth page): snapshot the stream's raids/clips/duels/new chatters into a growth report here.
+        // Final flush + ended_at; the growth page report for this stream is now complete.
+        await overlayStub(env, e.broadcaster_user_login).streamOffline(
+          { id: e.broadcaster_user_id, login: e.broadcaster_user_login, displayName: e.broadcaster_user_name });
         break;
     }
   })().catch((err) => console.error('eventsub handler', subType, err));

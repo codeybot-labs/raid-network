@@ -8,8 +8,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
 const check = (ok, msg) => { console.log(`${ok ? '✓' : '✗'} ${msg}`); if (!ok) failures++; };
 
-async function api(path, json) {
-  const res = await fetch(BASE + path, json === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(json) });
+async function api(path, json, headers = {}) {
+  const res = await fetch(BASE + path, json === undefined ? { headers } : { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(json) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`${path} ${res.status} ${JSON.stringify(data)}`);
   return data;
@@ -38,6 +38,8 @@ for (const d of (await api('/api/duels')).duels ?? []) {
 }
 
 const mm = await api('/api/matchmaking');
+await api('/api/demo/reset-cooldowns', { channel: mm.me.login });
+const RUN = Date.now().toString(36).slice(-5);
 check(mm.matches.length > 0, `matchmaking returned ${mm.matches.length} partners in ${mm.gameName} (range ${mm.range.join('-')})`);
 check(mm.matches.every((m) => m.stream.viewerCount >= mm.range[0] && m.stream.viewerCount <= mm.range[1]), 'all partners inside 0.5x-2x range');
 check(mm.matches.every((m, i, a) => i === 0 || a[i - 1].score >= m.score), 'partners sorted by score');
@@ -80,6 +82,7 @@ check(!!(await waitFor(() => board.last('state')?.state.status === 'live', 9000)
 const pulls = (n, prefix) => Array.from({ length: n }, (_, i) => ({ user: `${prefix}${i}`, text: '!pull' }));
 const ra = await api('/api/demo/chat', { channel: duel.a.login, messages: [...pulls(10, 'a_user'), { user: 'a_user0', text: '!pull' }, { user: 'a_noise', text: 'hello chat' }] });
 check(ra.counted === 10, `channel A: 10 pulls counted (cooldown blocked repeat + noise ignored) → ${ra.counted}`);
+check(ra.hype && !ra.hype.hype && !ra.clip, `normal chat pace doesn't trigger an auto-clip (${ra.hype?.rate} msg/s)`);
 const rb = await api('/api/demo/chat', { channel: duel.b.login, messages: [...pulls(4, 'b_user'), { user: 'a_user3', text: '!pull' }] });
 check(rb.counted === 4, `channel B: 4 pulls counted (cross-chat double agent rejected) → ${rb.counted}`);
 let st = await waitFor(() => { const s = board.last('state')?.state; return s && s.a.score === 10 && s.b.score === 4 ? s : null; });
@@ -125,10 +128,70 @@ const rv = await sendEventSub('stream.online', { challenge: 'abc123', subscripti
 check(rv.status === 200 && rv.text === 'abc123', 'EventSub callback verification echoes challenge');
 const ovR = openSocket(`/api/overlay/${mm.me.login}/ws`);
 await ovR.ready;
-const rr = await sendEventSub('channel.raid', raidPayload(opp.stream.login, opp.stream.id, mm.me.login, mm.me.id, 33));
+const rr = await sendEventSub('channel.raid', raidPayload(opp.stream.login, opp.stream.id, mm.me.login, mm.me.id, 33, opp.stream.displayName, mm.me.displayName));
 check(rr.status === 204, 'signed channel.raid accepted');
 check(!!(await waitFor(() => ovR.msgs.some((m) => m.type === 'raid'))), 'raid welcome pushed to raided channel overlay');
+const wcard = ovR.msgs.find((m) => m.type === 'raid');
+check(wcard?.status === 'demo' && wcard.message?.includes(opp.stream.displayName) && wcard.message.includes(`twitch.tv/${opp.stream.login}`),
+  `raid welcome card + chat shout-out: "${wcard?.message}"`);
+let outbox = (await api(`/api/demo/outbox?channel=${mm.me.login}`)).messages;
+check(outbox.some((m) => m.kind === 'welcome' && m.text.includes(opp.stream.displayName)), 'shout-out logged to bot_messages (POST /chat/messages mocked in demo)');
+const xr = await api('/api/demo/raid', { from: 'clutchcleo', to: mm.me.login });
+check(xr.welcome?.game === 'VALORANT' && xr.welcome.message.includes('from their VALORANT stream') && xr.welcome.raidCount >= 1,
+  `cross-game raid welcome mentions their game (raid #${xr.welcome?.raidCount})`);
+const xr2 = await api('/api/demo/raid', { from: 'clutchcleo', to: mm.me.login });
+check(xr2.welcome?.status === 'cooldown' && xr2.welcome.raidCount === xr.welcome.raidCount + 1, 'repeat raid within 5 min: card shown, no duplicate shout-out');
+
+// ---------- Auto-clips (hype detector) ----------
+const few = await api('/api/demo/hype', { channel: mm.me.login, count: 40, users: 2 });
+check(!few.clip && few.hype?.reason === 'few-chatters', `40 msgs from only 2 chatters: no clip (${few.hype?.reason})`);
+const h1 = await api('/api/demo/hype', { channel: mm.me.login, count: 40 });
+check(h1.hype?.hype && !!h1.clip?.id, `hype burst → auto-clip ${h1.clip?.id} (${h1.hype?.rate} msg/s, ${h1.hype?.ratio}× baseline, “${h1.hype?.quote}”)`);
+check(!!(await waitFor(() => ovR.msgs.some((m) => m.type === 'clip' && m.clip.id === h1.clip?.id))), 'clip card pushed to overlay');
+const h2 = await api('/api/demo/hype', { channel: mm.me.login, count: 40 });
+check(!h2.clip && h2.hype?.reason === 'cooldown', `second burst inside cooldown: no clip (${h2.hype?.reason})`);
+
+// ---------- !recap ----------
+const fan = `fan_${RUN}`;
+const rc = await api('/api/demo/chat', { channel: mm.me.login, messages: [{ user: fan, text: '!recap' }] });
+check(rc.recap?.status === 'demo' && /raids? in/.test(rc.recap.text) && rc.recap.text.includes('clip') && /Duels \d+W-\d+L/.test(rc.recap.text) && rc.recap.text.length <= 500,
+  `!recap reply: "${rc.recap?.text}"`);
+check(!!(await waitFor(() => ovR.msgs.some((m) => m.type === 'recap'))), 'recap card pushed to overlay');
+const rc2 = await api('/api/demo/chat', { channel: mm.me.login, messages: [{ user: `${fan}_2`, text: '!recap' }] });
+const rcNew = Number(rc.recap?.text.match(/(\d+) new chatters/)?.[1] ?? 1e9) - 1;
+check(rc2.recap?.status === 'cooldown', `second !recap within cooldown ignored (${rc2.recap?.status})`);
 ovR.ws.close();
+
+// ---------- Growth page ----------
+const g = await api('/api/growth');
+const gr = g.report;
+check(gr?.live && g.streams.length >= 6, `growth: live session + ${g.streams.length - 1} past streams`);
+check(gr.raidsIn.some((r) => r.from.id === opp.stream.id) && gr.raidsIn.some((r) => r.from.login === 'clutchcleo'), `growth: raids in listed (${gr.raidsIn.length})`);
+check(gr.raidsOut.some((r) => r.to.id === mm.matches[0].stream.id), `growth: raids out listed (${gr.raidsOut.length})`);
+check(gr.clips.some((c) => c.id === h1.clip?.id), `growth: auto-clip stored in D1 (${gr.clips.length} clips)`);
+check(gr.duels.some((d) => d.id === duel.id && d.myScore === fin?.a.score), `growth: duel result listed (${gr.duels.map((d) => d.result[0].toUpperCase()).join('')})`);
+check(gr.stream.newChatters > rcNew && gr.newChatterList.length > 0, `growth: ${gr.stream.newChatters} new chatters (first-timers since the recap counted after DO flush)`);
+check(gr.botMessages.some((m) => m.kind === 'welcome') && gr.botMessages.some((m) => m.kind === 'recap'), 'growth: welcomes + recap listed');
+check(gr.timeline.length > 0 && gr.timeline.at(-1).msgs > 0, `growth: timeline has ${gr.timeline.length} minutes`);
+
+// Another streamer ends their stream (stream.offline) → finished report; then goes live again.
+const login = await fetch(`${BASE}/auth/login?as=${opp.stream.login}`, { redirect: 'manual' });
+const cookie = { cookie: (login.headers.get('set-cookie') ?? '').split(';')[0] };
+const off = await api('/api/demo/stream', { channel: opp.stream.login, action: 'offline' }, cookie);
+const og = await api(`/api/growth?stream=${encodeURIComponent(off.ended ?? '')}`, undefined, cookie);
+check(!!off.ended && og.channel.login === opp.stream.login && og.report && !og.report.live && og.report.stream.endedAt > 0,
+  `stream.offline → finished report for ${opp.stream.displayName} (${og.report?.duels.length} duels, ${og.report?.stream.chatters} chatters)`);
+check(og.report?.duels.some((d) => d.id === duel.id && d.myScore === fin?.b.score), 'finished report shows the duel from the opponent\'s side');
+const on = await api('/api/demo/stream', { channel: opp.stream.login, action: 'online' }, cookie);
+const og2 = await api('/api/growth', undefined, cookie);
+check(og2.report?.live && og2.report.stream.id === on.started && og2.streams[1]?.id === off.ended, 'stream.online → new live session; ended one is in history');
+
+// ---------- Self-hosted fonts ----------
+const html = await (await fetch(`${BASE}/growth/`)).text();
+const css = html.match(/\/_astro\/[^"]+\.css/g) ?? [];
+const cssText = (await Promise.all(css.map((u) => fetch(BASE + u).then((r) => r.text())))).join('');
+const woff = cssText.match(/\/_astro\/[^)"']+\.woff2/)?.[0];
+check(!/fonts\.(googleapis|gstatic)\.com/.test(html + cssText) && !!woff && (await fetch(BASE + woff)).ok, `fonts self-hosted (${woff})`);
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

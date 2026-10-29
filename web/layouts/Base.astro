@@ -1,4 +1,8 @@
 ---
+// Self-hosted fonts (OFL, bundled into dist by Vite). No third-party font CDN.
+import '@fontsource-variable/unbounded/wght.css';
+import '@fontsource-variable/manrope/wght.css';
+import '@fontsource-variable/jetbrains-mono/wght.css';
 import '../styles/global.css';
 import Logo from '../components/Logo.astro';
 interface Props { title?: string; active?: string; bare?: boolean }
@@ -12,9 +16,6 @@ const { title = 'Raid Network', active = '', bare = false } = Astro.props;
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>{title}</title>
     <meta name="description" content="Find raid partners your size, see your raid network, and duel other streamers' chats live." />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
   </head>
   <body class={bare ? 'bare' : 'app'}>
     {!bare && (

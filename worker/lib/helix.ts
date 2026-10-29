@@ -141,9 +141,18 @@ export const startRaid = (env: Env, userToken: string, fromId: string, toId: str
 export const createClip = (env: Env, userToken: string, broadcasterId: string) =>
   helix<{ data: { id: string; edit_url: string }[] }>(env, userToken, 'POST', `/clips?broadcaster_id=${encodeURIComponent(broadcasterId)}`);
 
+/** GET /clips?id=… (app token) — view counts for !recap's "top clip". Up to 100 ids. */
+export async function getClips(env: Env, ids: string[]) {
+  if (!ids.length) return [];
+  const qs = new URLSearchParams();
+  ids.slice(0, 100).forEach((id) => qs.append('id', id));
+  const r = await helix<{ data: { id: string; url: string; view_count: number; title: string }[] }>(env, await appToken(env), 'GET', `/clips?${qs}`);
+  return r.data;
+}
+
 /** POST /chat/messages — user token (user:write:chat) of the sender. */
 export const sendChatMessage = (env: Env, userToken: string, broadcasterId: string, senderId: string, message: string) =>
-  helix<{ data: { message_id: string; is_sent: boolean }[] }>(env, userToken, 'POST', '/chat/messages', {
+  helix<{ data: { message_id: string; is_sent: boolean; drop_reason?: { code: string; message: string } | null }[] }>(env, userToken, 'POST', '/chat/messages', {
     broadcaster_id: broadcasterId, sender_id: senderId, message: message.slice(0, 500),
   });
 

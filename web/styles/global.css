@@ -15,9 +15,9 @@
   --dim: #6e6593;
   --danger: #ff6b6b;
   --radius: 18px;
-  --font-display: 'Unbounded', 'Manrope', system-ui, sans-serif;
-  --font-body: 'Manrope', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Unbounded Variable', 'Manrope Variable', system-ui, sans-serif;
+  --font-body: 'Manrope Variable', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; }

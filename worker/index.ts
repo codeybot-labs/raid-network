@@ -2,7 +2,8 @@ import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { appUrl, duelStub, isDemo, overlayStub, type AppEnv, type Env } from './env';
-import type { ChannelRef, ChatMessage, DuelMode, Viewer } from '../shared/types';
+import type { ChannelRef, ChatMessage, DuelMode, GrowthResponse, Viewer } from '../shared/types';
+import { listStreams, streamReport } from './lib/growth';
 import { randomId } from './lib/crypto';
 import { DEMO_ME, allDemoLogins, demoFindStream, ensureDemoSeed } from './lib/demo';
 import { handleEventSub, subscribeChannel } from './lib/eventsub';
@@ -133,7 +134,7 @@ app.post('/api/raids', async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO raids (from_id, from_login, from_name, to_id, to_login, to_name, viewers, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(v.id, v.login, v.displayName, to.id, to.login, to.displayName, viewers, isDemo(c.env) ? 'demo' : 'button', Date.now()).run();
-  if (isDemo(c.env)) await overlayStub(c.env, to.login).raid({ id: v.id, login: v.login, displayName: v.displayName }, viewers);
+  if (isDemo(c.env)) await overlayStub(c.env, to.login).raid({ id: v.id, login: v.login, displayName: v.displayName }, viewers, to);
   return c.json({ ok: true, to, demo: isDemo(c.env), note: isDemo(c.env) ? 'Demo raid recorded' : 'Raid started on Twitch; confirm it in your stream manager within 90s' });
 });
 
@@ -263,13 +264,66 @@ app.post('/api/demo/raid', async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO raids (from_id, from_login, from_name, to_id, to_login, to_name, viewers, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'demo', ?)`,
   ).bind(f.id, f.login, f.displayName, t.id, t.login, t.displayName, f.viewerCount, Date.now()).run();
-  await overlayStub(c.env, t.login).raid({ id: f.id, login: f.login, displayName: f.displayName }, f.viewerCount);
+  const welcome = await overlayStub(c.env, t.login).raid({ id: f.id, login: f.login, displayName: f.displayName }, f.viewerCount,
+    { id: t.id, login: t.login, displayName: t.displayName });
+  return c.json({ ok: true, welcome });
+});
+
+/** Demo: a burst of hype chat (many chatters spamming) to trip the auto-clip detector. */
+app.post('/api/demo/hype', async (c) => {
+  if (!isDemo(c.env)) return bad(c, 'demo only', 403);
+  const { channel, count = 40, text, users } = await c.req.json<{ channel: string; count?: number; text?: string; users?: number }>();
+  const s = demoFindStream(channel);
+  if (!s) return bad(c, 'unknown demo channel', 404);
+  const now = Date.now();
+  const lines = text ? [text] : ['LETS GOOOOO', 'NO WAY', 'CLIP IT', 'PogChamp', 'LETS GOOOOO', 'KEKW', 'LETS GOOOOO'];
+  const msgs: ChatMessage[] = Array.from({ length: Math.min(200, count) }, (_, i) => {
+    const user = `hyper${i % (users ?? Math.max(10, Math.ceil(count / 2)))}`;
+    return { id: `hype-${now}-${i}-${randomId(4)}`, channelId: s.id, channelLogin: s.login, userId: `chat-${user}`, login: user, text: lines[i % lines.length], at: now };
+  });
+  return c.json(await overlayStub(c.env, s.login).chat(msgs));
+});
+
+/** Demo: stream goes offline/online (what EventSub stream.offline/online would do). */
+app.post('/api/demo/stream', async (c) => {
+  if (!isDemo(c.env)) return bad(c, 'demo only', 403);
+  const { channel, action } = await c.req.json<{ channel: string; action: 'online' | 'offline' }>();
+  const s = demoFindStream(channel);
+  if (!s) return bad(c, 'unknown demo channel', 404);
+  const ref = { id: s.id, login: s.login, displayName: s.displayName };
+  const stub = overlayStub(c.env, s.login);
+  if (action === 'offline') return c.json({ ended: await stub.streamOffline(ref) });
+  const now = Date.now();
+  return c.json({ started: await stub.streamOnline({ channel: ref, streamId: `demo-${s.login}-${now}`, startedAt: now, title: s.title, gameName: s.gameName }) });
+});
+
+app.post('/api/demo/reset-cooldowns', async (c) => {
+  if (!isDemo(c.env)) return bad(c, 'demo only', 403);
+  const { channel } = await c.req.json<{ channel: string }>();
+  await overlayStub(c.env, channel).resetCooldowns();
   return c.json({ ok: true });
 });
 
-// TODO(growth page): GET /api/growth/:streamId — new chatters, raids in/out, clips, duel results.
-// TODO(auto-clips): GET /api/clips — list from D1 `clips`.
-app.get('/api/growth', (c) => c.json({ todo: 'growth page not built yet' }, 501));
+/** Demo: chat messages Raid Network "sent" (welcomes, recaps). Live mode logs the same table with Twitch's result. */
+app.get('/api/demo/outbox', async (c) => {
+  if (!isDemo(c.env)) return bad(c, 'demo only', 403);
+  const s = demoFindStream(c.req.query('channel') ?? '');
+  if (!s) return bad(c, 'unknown demo channel', 404);
+  const rows = await c.env.DB.prepare('SELECT kind, text, status, stream_id, created_at FROM bot_messages WHERE channel_id = ? ORDER BY id DESC LIMIT 20').bind(s.id).all();
+  return c.json({ messages: rows.results });
+});
+
+// ----- Growth -----
+app.get('/api/growth', async (c) => {
+  const v = requireViewer(c);
+  const ref = { id: v.id, login: v.login, displayName: v.displayName };
+  // Starts/flushes the live session first so the report is current (demo: also seeds past streams).
+  const live = await overlayStub(c.env, v.login).currentStream(ref);
+  const streams = await listStreams(c.env, v.id);
+  const wanted = c.req.query('stream') ?? live ?? streams[0]?.id;
+  const report = wanted && streams.some((s) => s.id === wanted) ? await streamReport(c.env, wanted) : null;
+  return c.json({ channel: ref, streams, report, demo: isDemo(c.env) } satisfies GrowthResponse);
+});
 
 // ---------- Webhooks ----------
 app.post('/webhooks/eventsub', (c) => handleEventSub(c.env, c.req.raw, c.executionCtx));

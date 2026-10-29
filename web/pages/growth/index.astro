@@ -1,11 +1,8 @@
 ---
 import Base from '../../layouts/Base.astro';
+import Growth from '../../components/Growth';
 ---
 <Base title="Growth · Raid Network" active="growth">
-  <main class="wrap" style="padding-top:60px">
-    <div class="eyebrow">Coming soon</div>
-    <h1 style="font-size:40px;margin:12px 0">Post-stream growth</h1>
-    <p class="muted" style="max-width:620px">After each stream: new chatters, raids in and out, clips the hype detector grabbed, duel results and a <code>!recap</code>-style summary. This page isn't built yet. Matchmaking and duels come first.</p>
-    <div class="panel" style="margin-top:24px"><div class="panel-body mono dim">TODO: /api/growth/:streamId · auto-clips · raider welcomes · !recap</div></div>
-  </main>
+  <a slot="right" class="btn sm ghost" href="/auth/logout">Sign out</a>
+  <Growth client:only="solid-js" />
 </Base>

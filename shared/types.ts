@@ -127,8 +127,71 @@ export interface ChatMessage {
   at: number;
 }
 
+export interface ClipInfo {
+  id: string;
+  url: string;
+  editUrl?: string | null;
+  score: number; // hype ratio: window rate / baseline
+  rate: number; // messages per second in the hype window
+  quote: string; // most common message in the window
+  demo: boolean;
+  createdAt: number;
+}
+
+export interface RaidWelcome {
+  from: ChannelRef;
+  viewers: number;
+  raidCount: number; // including this one
+  game?: string | null;
+  message?: string | null; // chat shout-out text that was sent
+  status?: BotMessageStatus;
+}
+
+export type BotMessageStatus = 'sent' | 'demo' | 'failed' | 'dropped' | 'cooldown' | 'offline';
+
 export type OverlayEvent =
   | { type: 'hello'; channel: string; activeDuelId: string | null }
   | { type: 'duel'; duelId: string | null; status?: DuelStatus }
-  | { type: 'raid'; from: ChannelRef; viewers: number }
+  | ({ type: 'raid' } & RaidWelcome)
+  | { type: 'clip'; clip: ClipInfo }
+  | { type: 'recap'; lines: string[]; text: string }
   | { type: 'toast'; text: string };
+
+// ---------- Growth page ----------
+export interface TimelinePoint { t: number; msgs: number; chatters: number; viewers: number }
+
+export interface StreamSummary {
+  id: string;
+  title: string | null;
+  gameName: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  peakViewers: number;
+  messages: number;
+  chatters: number;
+  newChatters: number;
+  raidsIn: number;
+  source: string;
+}
+
+export interface GrowthReport {
+  stream: StreamSummary;
+  durationMs: number;
+  live: boolean;
+  timeline: TimelinePoint[];
+  raidsIn: { from: ChannelRef; viewers: number; at: number }[];
+  raidsOut: { to: ChannelRef; viewers: number; at: number }[];
+  clips: ClipInfo[];
+  duels: { id: string; opponent: ChannelRef; mode: string; result: 'win' | 'loss' | 'tie'; myScore: number; theirScore: number; at: number }[];
+  newChatterList: { login: string; messages: number }[];
+  topChatters: { login: string; messages: number; isNew: boolean }[];
+  returningChatters: number;
+  botMessages: { kind: string; text: string; status: string; at: number }[];
+}
+
+export interface GrowthResponse {
+  channel: ChannelRef;
+  streams: StreamSummary[];
+  report: GrowthReport | null;
+  demo: boolean;
+}

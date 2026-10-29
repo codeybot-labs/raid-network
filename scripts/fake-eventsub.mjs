@@ -36,11 +36,11 @@ export const chatPayload = (login, id, text, chatter = 'eventsub_tester') => ({
   },
 });
 
-export const raidPayload = (fromLogin, fromId, toLogin, toId, viewers = 12) => ({
+export const raidPayload = (fromLogin, fromId, toLogin, toId, viewers = 12, fromName = fromLogin, toName = toLogin) => ({
   subscription: { type: 'channel.raid', version: '1', condition: { to_broadcaster_user_id: toId } },
   event: {
-    from_broadcaster_user_id: fromId, from_broadcaster_user_login: fromLogin, from_broadcaster_user_name: fromLogin,
-    to_broadcaster_user_id: toId, to_broadcaster_user_login: toLogin, to_broadcaster_user_name: toLogin, viewers,
+    from_broadcaster_user_id: fromId, from_broadcaster_user_login: fromLogin, from_broadcaster_user_name: fromName,
+    to_broadcaster_user_id: toId, to_broadcaster_user_login: toLogin, to_broadcaster_user_name: toName, viewers,
   },
 });
 
