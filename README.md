@@ -27,7 +27,7 @@ Cron */10 ─▶ Helix GET /streams per tracked game ─▶ KV
 | Shared duel overlay on both channels (`/overlay/:channel`) | ✅ built |
 | Twitch OAuth, encrypted token storage, refresh | ✅ built (needs real credentials to test) |
 | EventSub webhook (HMAC verify, replay window, dedupe) for stream.online/offline, channel.raid, channel.chat.message | ✅ built |
-| Cron cache of live streams per tracked game | ✅ built |
+| Cron cache of live streams per tracked game | ✅ verified against real Helix (follows cursors past short pages, dedupes) |
 | DEMO_MODE: fake streamers, seeded raid history, chat simulator | ✅ built |
 | Raider welcomes: overlay card (first raid / raid #n, their game) + chat shout-out via `POST /chat/messages` | ✅ built (chat send mocked in demo) |
 | Auto-clips: chat-velocity hype detector → `POST /clips` → clip card on overlay, stored in D1 | ✅ built (Helix call mocked in demo) |
@@ -102,7 +102,21 @@ npx wrangler secret put BOT_USER_ID         # optional bot account id for readin
 **Chat messages (welcomes, `!recap`):** if `BOT_USER_ID` is set, messages go out with the app access token and `sender_id = BOT_USER_ID`. The bot account must have authorized the app with `user:bot` and `user:write:chat`, and each broadcaster grants `channel:bot`, which is in the sign-in scopes. Without `BOT_USER_ID`, messages are sent with the broadcaster's own user token, so they appear as the streamer. Every attempt is logged to D1 `bot_messages` with status `sent`, `dropped`, `failed`, `cooldown` or `demo`, and the growth page shows the log.
 
 **Auto-clips:** `POST /helix/clips` uses the broadcaster's token (`clips:edit`) and only works while they're live. Detector defaults are in `worker/lib/hype.ts`. It compares a 10 s window against a 120 s baseline and fires when there are ≥2 msg/s, at least 4× the baseline, and ≥8 distinct chatters, then waits out a 120 s cooldown. `!` commands are ignored when picking the quote.
-For local live testing, copy `.dev.vars.example` to `.dev.vars` and fill it in, then `npm run dev:live`.
+### Local live mode (real Twitch, local D1/KV/DOs, nothing deployed)
+Copy `.dev.vars.example` to `.dev.vars` and fill it in, then:
+```bash
+npm run dev:live    # scripts/dev-live.sh: build + local D1 migrations + wrangler dev on :8787 with
+                    # DEMO_MODE=false, APP_URL=http://localhost:8787, DEV_TOOLS=true,
+                    # TRACKED_GAME_IDS=33214,516575,27471,490744 (Fortnite, VALORANT, Minecraft, Stardew Valley)
+curl "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=*/10+*+*+*+*"   # fill the live-streams cache now
+```
+Sign in at `http://localhost:8787/auth/login` (the redirect URL registered on the Twitch app). Dev-only helpers
+(404 unless `DEV_TOOLS=true`, never set in production): `GET /api/dev/status` (config + app-token check, no secret values),
+`GET /api/dev/cache/:gameId`, `GET /api/dev/matchmaking?login=<any live channel>`.
+
+EventSub webhooks need a public HTTPS URL. Start a tunnel to `http://127.0.0.1:8787` and pass its base URL as
+`EVENTSUB_CALLBACK=https://… npm run dev:live`; OAuth keeps using `APP_URL` (localhost). `npm run live:check [login]`
+creates a `stream.online` subscription against that callback, waits for Twitch's signed challenge to be answered, then deletes it.
 
 ### 4. Deploy
 ```bash

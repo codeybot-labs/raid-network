@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { appUrl, duelStub, isDemo, overlayStub, type AppEnv, type Env } from './env';
+import { appUrl, duelStub, eventsubCallbackUrl, isDemo, overlayStub, type AppEnv, type Env } from './env';
 import type { ChannelRef, ChatMessage, DuelMode, GrowthResponse, Viewer } from '../shared/types';
 import { listStreams, streamReport } from './lib/growth';
 import { randomId } from './lib/crypto';
@@ -10,7 +10,7 @@ import { handleEventSub, subscribeChannel } from './lib/eventsub';
 import { authorizeUrl, appToken, exchangeCode, getUsers, startRaid, HelixError } from './lib/helix';
 import { matchmaking, raidGraph } from './lib/matchmaking';
 import { createSession, demoViewer, destroySession, getViewer } from './lib/session';
-import { refreshAllStreams } from './lib/streams';
+import { getCachedStreams, refreshAllStreams, trackedGames } from './lib/streams';
 import { saveTokens, userToken } from './lib/tokens';
 
 export { OverlayDO } from './durable/overlay';
@@ -311,6 +311,57 @@ app.get('/api/demo/outbox', async (c) => {
   if (!s) return bad(c, 'unknown demo channel', 404);
   const rows = await c.env.DB.prepare('SELECT kind, text, status, stream_id, created_at FROM bot_messages WHERE channel_id = ? ORDER BY id DESC LIMIT 20').bind(s.id).all();
   return c.json({ messages: rows.results });
+});
+
+// ----- Dev helpers (DEV_TOOLS=true only; `npm run dev:live` sets it, production never does) -----
+app.use('/api/dev/*', async (c, next) => {
+  if (c.env.DEV_TOOLS !== 'true') return bad(c, 'not found', 404);
+  await next();
+});
+
+/** Config + app-token (client credentials) check. Never returns secret values. */
+app.get('/api/dev/status', async (c) => {
+  const t0 = Date.now();
+  let appTokenOk = false; let tokenError: string | undefined;
+  try { appTokenOk = (await appToken(c.env)).length > 0; } catch (e) { tokenError = (e as Error).message.slice(0, 200); }
+  return c.json({
+    demo: isDemo(c.env), appUrl: appUrl(c.env), oauthRedirect: redirectUri(c), eventsubCallback: eventsubCallbackUrl(c.env),
+    trackedGames: await trackedGames(c.env), maxStreamPages: Number(c.env.MAX_STREAM_PAGES ?? '10'),
+    secretsPresent: {
+      TWITCH_CLIENT_ID: !!c.env.TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET: !!c.env.TWITCH_CLIENT_SECRET,
+      EVENTSUB_SECRET: !!c.env.EVENTSUB_SECRET, TOKEN_ENC_KEY: !!c.env.TOKEN_ENC_KEY, BOT_USER_ID: !!c.env.BOT_USER_ID,
+    },
+    appTokenOk, tokenError, ms: Date.now() - t0,
+  });
+});
+
+/** Summary of the KV live-streams cache for one game (fills it on a cold miss). */
+app.get('/api/dev/cache/:gameId', async (c) => {
+  const cache = await getCachedStreams(c.env, c.req.param('gameId'));
+  const v = cache.streams.map((s) => s.viewerCount);
+  return c.json({
+    gameId: cache.gameId, gameName: cache.gameName, fetchedAt: cache.fetchedAt ? new Date(cache.fetchedAt).toISOString() : null,
+    count: cache.streams.length, uniqueIds: new Set(cache.streams.map((s) => s.id)).size,
+    maxViewers: v[0] ?? 0, minViewers: v[v.length - 1] ?? 0,
+    sample: cache.streams.filter((_, i) => i % Math.max(1, Math.floor(cache.streams.length / 8)) === 0).slice(0, 8)
+      .map((s) => ({ login: s.login, viewers: s.viewerCount, lang: s.language })),
+  });
+});
+
+/** Matchmaking as if `login` were signed in (read-only: uses the app token, no user token). */
+app.get('/api/dev/matchmaking', async (c) => {
+  const login = (c.req.query('login') ?? '').toLowerCase();
+  if (!login) return bad(c, 'login required');
+  const [u] = await getUsers(c.env, await appToken(c.env), { logins: [login] });
+  if (!u) return bad(c, 'unknown Twitch login', 404);
+  const r = await matchmaking(c.env, { id: u.id, login: u.login, displayName: u.display_name, avatarUrl: u.profile_image_url, demo: false });
+  return c.json({
+    me: r.me.login, live: r.live, gameName: r.gameName, baseViewers: r.baseViewers, range: r.range, cacheAgeS: Math.round(r.cacheAge / 1000),
+    matchCount: r.matches.length,
+    allInRange: r.matches.every((m) => m.stream.viewerCount >= r.range[0] && m.stream.viewerCount <= r.range[1]),
+    sameGame: r.matches.every((m) => m.stream.gameName === r.gameName),
+    matches: r.matches.slice(0, 10).map((m) => ({ login: m.stream.login, viewers: m.stream.viewerCount, ratio: +m.ratio.toFixed(2), score: m.score, lang: m.stream.language, reasons: m.reasons })),
+  });
 });
 
 // ----- Growth -----

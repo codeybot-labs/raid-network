@@ -12,7 +12,30 @@ function uptime(startedAt: string): number {
   return (Date.now() - Date.parse(startedAt)) / 60_000;
 }
 
-const fmtUptime = (m: number) => (m < 60 ? `${Math.round(m)}m` : `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`);
+const fmtUptime = (m: number) => {
+  const total = Math.max(0, Math.round(m)); // round once so 4h 59.6m shows as 5h 0m, not 4h 60m
+  return total < 60 ? `${total}m` : `${Math.floor(total / 60)}h ${total % 60}m`;
+};
+
+/** Tags that say nothing beyond game/language (already scored separately): the game name, language names, drops. */
+const NOISE_TAGS = new Set(['dropsenabled', 'drops']);
+const langNameCache = new Map<string, string[]>();
+function languageNames(code: string): string[] {
+  let names = langNameCache.get(code);
+  if (!names) {
+    names = [];
+    for (const locale of ['en', code]) {
+      try { const n = new Intl.DisplayNames([locale], { type: 'language' }).of(code); if (n) names.push(n.toLowerCase()); } catch { /* unknown code */ }
+    }
+    langNameCache.set(code, names);
+  }
+  return names;
+}
+const isNoiseTag = (tag: string, s: StreamInfo) => {
+  const t = tag.toLowerCase();
+  return NOISE_TAGS.has(t) || t === s.gameName.toLowerCase().replace(/\s+/g, '') || t === s.gameName.toLowerCase()
+    || languageNames(s.language).includes(t);
+};
 
 /** Pure ranking: exported for reuse/testing. */
 export function rankMatches(
@@ -30,7 +53,7 @@ export function rankMatches(
     // 0..40: closeness in log space (1x = 40, 0.5x/2x = 0).
     let score = 40 * (1 - Math.min(1, Math.abs(Math.log2(ratio))));
     reasons.push(`${ratio.toFixed(1)}× your size`);
-    const shared = s.tags.filter((t) => myTags.has(t.toLowerCase()));
+    const shared = s.tags.filter((t) => myTags.has(t.toLowerCase()) && !isNoiseTag(t, s));
     if (shared.length) {
       score += Math.min(20, shared.length * 8);
       reasons.push(`Shares ${shared.slice(0, 3).join(', ')}`);

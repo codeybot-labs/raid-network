@@ -1,4 +1,4 @@
-import { appUrl, isDemo, overlayStub, type Env } from '../env';
+import { eventsubCallbackUrl, isDemo, overlayStub, type Env } from '../env';
 import type { ChatMessage } from '../../shared/types';
 import { hmacSha256Hex, timingSafeEqual } from './crypto';
 import { getChannelInfo, subscribeEventSub } from './helix';
@@ -114,7 +114,9 @@ export async function handleEventSub(env: Env, req: Request, ctx: { waitUntil(p:
 
 /** Subscribe a freshly signed-in broadcaster to everything Raid Network needs. */
 export async function subscribeChannel(env: Env, broadcasterId: string): Promise<{ ok: number; failed: string[] }> {
-  const cb = `${appUrl(env)}/webhooks/eventsub`;
+  const cb = eventsubCallbackUrl(env);
+  // Twitch only delivers webhooks to public https:443 URLs; skip the API calls when running on plain localhost.
+  if (!cb.startsWith('https://')) return { ok: 0, failed: [`EventSub needs a public https callback (have ${cb}); set EVENTSUB_CALLBACK or deploy`] };
   const reader = env.BOT_USER_ID || broadcasterId;
   const subs: [string, string, Record<string, string>][] = [
     ['stream.online', '1', { broadcaster_user_id: broadcasterId }],

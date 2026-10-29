@@ -69,13 +69,18 @@ export async function myStreamContext(env: Env, userId: string, login: string): 
     let gameId = row?.game_id ?? null;
     let gameName = row?.game_name ?? '';
     let tags: string[] = row?.tags ? JSON.parse(row.tags) : [];
+    let language = row?.language ?? null;
     if (!gameId) {
       const info = await getChannelInfo(env, userId);
       gameId = info?.game_id || null;
       gameName = info?.game_name ?? '';
       tags = info?.tags ?? [];
+      language = language ?? (info?.broadcaster_language || null);
+      // Remember the game so the cron keeps it cached (no-op until the channel has signed in).
+      if (gameId) await env.DB.prepare('UPDATE channels SET game_id=?, game_name=?, tags=?, language=?, updated_at=? WHERE id=?')
+        .bind(gameId, gameName, JSON.stringify(tags), language, Date.now(), userId).run();
     }
-    return { stream: null, gameId, gameName, baseViewers: row?.viewer_count || 5, tags, language: row?.language ?? 'en' };
+    return { stream: null, gameId, gameName, baseViewers: row?.viewer_count || 5, tags, language: language ?? 'en' };
   }
   // Keep channels row fresh so the cron caches this game.
   await env.DB.prepare(

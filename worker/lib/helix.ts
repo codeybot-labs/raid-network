@@ -3,6 +3,7 @@ import type { StreamInfo } from '../../shared/types';
 
 const HELIX = 'https://api.twitch.tv/helix';
 const ID = 'https://id.twitch.tv/oauth2';
+const APP_TOKEN_KEY = 'twitch:apptoken';
 
 export const SCOPES = [
   'user:read:chat',
@@ -63,14 +64,15 @@ export const refreshUserToken = (env: Env, refreshToken: string) =>
 
 /** App access token (client credentials), cached in KV until shortly before expiry. */
 export async function appToken(env: Env): Promise<string> {
-  const cached = await env.KV.get('twitch:apptoken');
+  const cached = await env.KV.get(APP_TOKEN_KEY);
   if (cached) return cached;
   const t = await tokenRequest({ client_id: creds(env).id, client_secret: creds(env).secret, grant_type: 'client_credentials' });
-  await env.KV.put('twitch:apptoken', t.access_token, { expirationTtl: Math.max(60, t.expires_in - 600) });
+  await env.KV.put(APP_TOKEN_KEY, t.access_token, { expirationTtl: Math.max(60, t.expires_in - 600) });
   return t.access_token;
 }
 
-async function helix<T>(env: Env, token: string, method: string, path: string, body?: unknown): Promise<T> {
+
+async function helix<T>(env: Env, token: string, method: string, path: string, body?: unknown, attempt = 0): Promise<T> {
   const res = await fetch(`${HELIX}${path}`, {
     method,
     headers: {
@@ -80,6 +82,18 @@ async function helix<T>(env: Env, token: string, method: string, path: string, b
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 429 && attempt < 2) {
+    // Token-bucket rate limit (800 points/min for app tokens). Wait for the bucket reset, capped at 5 s.
+    const reset = Number(res.headers.get('Ratelimit-Reset')) * 1000;
+    const waitMs = Number.isFinite(reset) && reset > Date.now() ? Math.min(5000, reset - Date.now() + 100) : 1000;
+    await new Promise((r) => setTimeout(r, waitMs));
+    return helix<T>(env, token, method, path, body, attempt + 1);
+  }
+  if (res.status === 401 && attempt === 0 && token === (await env.KV.get(APP_TOKEN_KEY))) {
+    // Cached app token was revoked/expired early: drop it and retry once with a fresh one.
+    await env.KV.delete(APP_TOKEN_KEY);
+    return helix<T>(env, await appToken(env), method, path, body, attempt + 1);
+  }
   if (!res.ok) throw new HelixError(res.status, await res.text(), path);
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -96,20 +110,24 @@ const toStream = (s: HelixStream): StreamInfo => ({
   tags: s.tags ?? [], startedAt: s.started_at,
 });
 
-/** GET /streams?game_id=…, paginated (Helix sorts by viewers desc, so small streamers are deep in the tail). */
+/**
+ * GET /streams?game_id=…, paginated (Helix sorts by viewers desc, so small streamers are deep in the tail).
+ * Helix pages are often shorter than `first` even mid-list, so follow the cursor until it runs out, and
+ * dedupe by user id because streams shift between pages while we paginate.
+ */
 export async function getStreamsByGame(env: Env, gameId: string, maxPages: number): Promise<StreamInfo[]> {
   const token = await appToken(env);
-  const out: StreamInfo[] = [];
+  const seen = new Map<string, StreamInfo>();
   let cursor: string | undefined;
   for (let page = 0; page < maxPages; page++) {
     const qs = new URLSearchParams({ game_id: gameId, first: '100', type: 'live' });
     if (cursor) qs.set('after', cursor);
     const r = await helix<{ data: HelixStream[]; pagination: { cursor?: string } }>(env, token, 'GET', `/streams?${qs}`);
-    out.push(...r.data.map(toStream));
+    for (const s of r.data) if (!seen.has(s.user_id)) seen.set(s.user_id, toStream(s));
     cursor = r.pagination?.cursor;
-    if (!cursor || r.data.length < 100) break;
+    if (!cursor || !r.data.length) break;
   }
-  return out;
+  return [...seen.values()].sort((a, b) => b.viewerCount - a.viewerCount);
 }
 
 export async function getStreamByUser(env: Env, userId: string): Promise<StreamInfo | null> {
