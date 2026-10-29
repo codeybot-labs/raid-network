@@ -1,5 +1,5 @@
 // End-to-end smoke test against a running `npm run dev` (DEMO_MODE).
-// Exercises matchmaking, raids, network map, both duel modes over WebSockets, and signed EventSub.
+// Exercises matchmaking, raids, network map, both duel modes over WebSockets (1v1, free-for-all, teams), and signed EventSub.
 import { chatPayload, raidPayload, sendEventSub } from './fake-eventsub.mjs';
 
 const BASE = process.env.BASE ?? 'http://127.0.0.1:8787';
@@ -122,6 +122,168 @@ check(!!st && st.a.poll.join() === '0,2,1' && st.b.poll.join() === '0,1,0', `pol
 await api(`/api/duels/${p.id}/cancel`, {});
 check(!!(await waitFor(() => pb.last('state')?.state.status === 'cancelled')), 'poll duel cancelled');
 pb.ws.close();
+
+// ---------- Multi-channel duels (free-for-all + teams) ----------
+const asUser = async (login) => {
+  const r = await fetch(`${BASE}/auth/login?as=${login}`, { redirect: 'manual' });
+  return { cookie: (r.headers.get('set-cookie') ?? '').split(';')[0] };
+};
+const post = (path, json, headers = {}) => fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(json) });
+const pool = mm.matches.map((m) => m.stream);
+const chatIn = (login, msgs) => api('/api/demo/chat', { channel: login, messages: msgs });
+const pullsFrom = (n, prefix) => Array.from({ length: n }, (_, i) => ({ user: `${prefix}_${RUN}_${i}`, text: '!pull' }));
+const sideOf = (st, k) => st.sides.find((x) => x.key === k);
+const chOf = (st, id) => st.channels.find((c) => c.id === id);
+const overlaysFor = async (logins) => { const o = logins.map((l) => openSocket(`/api/overlay/${l}/ws`)); await Promise.all(o.map((x) => x.ready)); return o; };
+const toldAll = (ovs, id) => waitFor(() => ovs.every((o) => o.msgs.some((m) => m.type === 'duel' && m.duelId === id)));
+
+// Validation
+{
+  const r1 = await post('/api/duels', { format: 'ffa', invites: [{ id: pool[0].id }] });
+  const r2 = await post('/api/duels', { format: 'teams', invites: pool.slice(0, 5).map((s) => ({ id: s.id, team: 'b' })) });
+  const r3 = await post('/api/duels', { format: 'teams', invites: [{ id: pool[0].id, team: 'a' }] });
+  check(r1.status === 400 && r2.status === 400 && r3.status === 400, `bad formats refused (ffa with 1 invite ${r1.status}, 5 on Team B ${r2.status}, empty Team B ${r3.status})`);
+}
+
+// FFA, 3 channels, Chat Race: first lane to the finish line wins before the timer.
+{
+  const [x, y] = [pool[2], pool[3]];
+  const d = (await api('/api/duels', { format: 'ffa', mode: 'tug', durationS: 60, raceTarget: 20, invites: [{ id: x.id }, { login: y.login }] })).duel;
+  check(d.format === 'ffa' && d.channels.length === 3 && d.sides.map((q) => q.key).join() === 'a,b,c' && d.raceTarget === 20 && d.status === 'pending',
+    `FFA-3 created: lanes ${d.channels.map((c) => `${c.side}=${c.login}`).join(' ')} (invite by id + login), finish line ${d.raceTarget}`);
+  const xs = await asUser(x.login);
+  const inbox = (await api('/api/duels', undefined, xs)).duels.find((q) => q.id === d.id);
+  check(inbox?.my_invite === 'pending' && inbox.format === 'ffa' && inbox.channels.length === 3, `FFA invite shows on ${x.displayName}'s dashboard (my_invite=${inbox?.my_invite})`);
+  const early = await post(`/api/duels/${d.id}/start`, {});
+  check(early.status === 409, `can't start before any invitee accepts (${early.status})`);
+  const a1 = (await api(`/api/duels/${d.id}/accept`, {}, xs)).duel; // the invitee answers from their own session
+  check(a1.status === 'accepted' && chOf(a1, x.id).invite === 'accepted' && chOf(a1, y.id).invite === 'pending', `invitee accepts from own session → startable with 2 of 3 lanes in (status=${a1.status})`);
+  const notHost = await post(`/api/duels/${d.id}/start`, {}, xs);
+  check(notHost.status === 403, `only the host starts a multi-channel duel (${notHost.status})`);
+  const a2 = (await api(`/api/duels/${d.id}/accept`, { channelId: y.id })).duel; // demo: host answers for the fake streamer
+  check(chOf(a2, y.id).invite === 'accepted', 'demo host accepts for the third lane');
+  const board3 = openSocket(`/api/duels/${d.id}/ws`); await board3.ready;
+  const ovs = await overlaysFor([d.a.login, x.login, y.login]);
+  await api(`/api/duels/${d.id}/start`, {});
+  check(!!(await toldAll(ovs, d.id)), 'all 3 overlays told about the FFA duel');
+  check(!!(await waitFor(() => board3.last('state')?.state.status === 'live', 9000)), 'FFA countdown → live');
+  await chatIn(d.a.login, pullsFrom(5, 'ra'));
+  await chatIn(x.login, pullsFrom(3, 'rb'));
+  const rc = await chatIn(y.login, [...pullsFrom(7, 'rc'), { user: `ra_${RUN}_0`, text: '!pull' }]);
+  check(rc.counted === 7, `lane C: 7 pulls, rival-lane chatter rejected → ${rc.counted}`);
+  let st = await waitFor(() => { const q = board3.last('state')?.state; return q && sideOf(q, 'a')?.score === 5 && sideOf(q, 'b')?.score === 3 && sideOf(q, 'c')?.score === 7 ? q : null; });
+  check(!!st, `FFA chat routing per lane: ${board3.last('state')?.state.sides.map((q) => `${q.key}=${q.score}`).join(' ')}`);
+  await chatIn(y.login, pullsFrom(14, 'rc2'));
+  st = await waitFor(() => board3.last('state')?.state.status === 'finished' ? board3.last('state').state : null, 5000);
+  check(!!st && st.winner === 'c' && st.endedAt < st.endsAt, `race finished early at the line: winner=${st?.winner} (${st?.sides.map((q) => q.score).join('/')})`);
+  const row = (await api('/api/duels')).duels.find((q) => q.id === d.id);
+  check(row?.format === 'ffa' && row.winner === 'c' && row.channels.find((c) => c.side === 'c')?.score === 21 && JSON.parse(row.results).length === 3,
+    `FFA D1 row + per-channel scores persisted (winner=${row?.winner}, lane C=${row?.channels.find((c) => c.side === 'c')?.score})`);
+  check(ovs.every((o) => o.msgs.some((m) => m.type === 'duel' && m.status === 'finished')), 'all FFA overlays notified of finish');
+  for (const o of [board3, ...ovs]) o.ws.close();
+}
+
+// FFA, 4 channels, Chat Poll: same question everywhere, most voters wins at the timer.
+{
+  const four = [pool[4], pool[5], pool[6]];
+  const d = (await api('/api/duels', { format: 'ffa', mode: 'poll', durationS: 20, question: 'Best season?', options: ['Spring', 'Summer', 'Fall', 'Winter'], autoAccept: true,
+    invites: four.map((q) => ({ id: q.id })) })).duel;
+  check(d.status === 'accepted' && d.channels.every((c) => c.invite === 'host' || c.invite === 'accepted') && d.sides.length === 4, `FFA-4 poll with demo auto-accept: ${d.sides.length} lanes, status=${d.status}`);
+  const b4 = openSocket(`/api/duels/${d.id}/ws`); await b4.ready;
+  await api(`/api/duels/${d.id}/start`, {});
+  await waitFor(() => b4.last('state')?.state.status === 'live', 9000);
+  const v = (pfx, n, opt) => Array.from({ length: n }, (_, i) => ({ user: `${pfx}_${RUN}_${i}`, text: `!${opt}` }));
+  await chatIn(d.a.login, v('pa', 2, 1));
+  await chatIn(four[0].login, v('pb', 3, 2));
+  await chatIn(four[1].login, [...v('pc', 5, 3), { user: `pc_${RUN}_0`, text: '!4' }]);
+  await chatIn(four[2].login, [...v('pd', 1, 4), { user: `pa_${RUN}_1`, text: '!2' }]);
+  const st = await waitFor(() => { const q = b4.last('state')?.state; return q && q.sides.map((x) => x.voters).join() === '2,3,5,1' ? q : null; });
+  check(!!st && sideOf(st, 'c').poll.join() === '0,0,4,1' && st.sides.reduce((t, x) => t + x.poll[3], 0) === 2,
+    `FFA-4 poll per-lane results (voters ${st?.sides.map((x) => x.voters).join('/')}, lane C ${sideOf(st ?? { sides: [] }, 'c')?.poll}, vote change + cross-lane voter handled)`);
+  const fin4 = await waitFor(() => b4.last('state')?.state.status === 'finished' ? b4.last('state').state : null, 30000);
+  check(fin4?.winner === 'c', `FFA-4 poll winner = lane with most voters (${fin4?.winner})`);
+  b4.ws.close();
+}
+
+// Teams 2v2, Team Tug: every chat on a team pulls the same rope.
+{
+  const [y, x, z] = [pool[7], pool[8], pool[9]]; // y on A with the host, x + z on B
+  const d = (await api('/api/duels', { format: 'teams', mode: 'tug', durationS: 20, teamNames: ['Cozy Crew', 'Night Owls'],
+    invites: [{ login: x.login, team: 'b' }, { id: y.id, team: 'a' }, { id: z.id, team: 'b' }] })).duel;
+  check(d.format === 'teams' && d.channels.filter((c) => c.side === 'a').length === 2 && d.channels.filter((c) => c.side === 'b').length === 2 && d.a.displayName === 'Cozy Crew',
+    `Teams 2v2 created (${d.a.displayName}: ${d.channels.filter((c) => c.side === 'a').map((c) => c.login)} vs ${d.b.displayName}: ${d.channels.filter((c) => c.side === 'b').map((c) => c.login)})`);
+  await api(`/api/duels/${d.id}/accept`, {}); // demo: everyone pending says yes
+  const bt = openSocket(`/api/duels/${d.id}/ws`); await bt.ready;
+  const ovs = await overlaysFor([d.a.login, y.login, x.login, z.login]);
+  await api(`/api/duels/${d.id}/start`, {});
+  check(!!(await toldAll(ovs, d.id)), 'all 4 team overlays told about the duel');
+  await waitFor(() => bt.last('state')?.state.status === 'live', 9000);
+  await chatIn(d.a.login, pullsFrom(4, 'ta'));
+  await chatIn(y.login, pullsFrom(3, 'ty'));
+  await chatIn(x.login, pullsFrom(2, 'tx'));
+  const rz = await chatIn(z.login, [...pullsFrom(6, 'tz'), { user: `ta_${RUN}_1`, text: '!pull' }]);
+  check(rz.counted === 6, `Team B chat rejects a Team A chatter → ${rz.counted}`);
+  await sleep(1600); // past the per-chatter pull cooldown
+  const hop = await chatIn(y.login, [{ user: `ta_${RUN}_0`, text: '!pull' }]);
+  check(hop.counted === 1, 'chatter hopping between teammates\' chats still counts for their team');
+  const st = await waitFor(() => { const q = bt.last('state')?.state; return q && q.a.score === 8 && q.b.score === 8 ? q : null; });
+  check(!!st && sideOf(st, 'a').score === 8 && chOf(st, y.id).score === 4 && chOf(st, z.id).score === 6,
+    `team totals aggregate channels: A=${bt.last('state')?.state.a.score} (host ${chOf(bt.last('state').state, d.a.id).score} + ${y.login} ${chOf(bt.last('state').state, y.id).score}) B=${bt.last('state')?.state.b.score}`);
+  check(st?.top.some((t) => t.side === 'a') && st.top.some((t) => t.side === 'b') && st.top.filter((t) => t.side === 'a').length <= 3,
+    `top chatters per team on the board (${st?.top.map((t) => `${t.side}:${t.login}@${t.channelLogin}`).slice(0, 2).join(', ')}…)`);
+  await chatIn(x.login, pullsFrom(3, 'tx2'));
+  const fin = await waitFor(() => bt.last('state')?.state.status === 'finished' ? bt.last('state').state : null, 30000);
+  check(fin?.winner === 'b' && fin.b.score === 11, `Teams 2v2 winner=${fin?.winner} (${fin?.a.score}-${fin?.b.score})`);
+  const og = await api('/api/growth', undefined, await asUser(z.login));
+  const gd = og.report?.duels.find((q) => q.id === d.id);
+  check(gd?.format === 'teams' && gd.result === 'win' && gd.myScore === 11 && gd.theirScore === 8, `teammate's growth page: ${gd?.result} ${gd?.myScore}-${gd?.theirScore} vs ${gd?.opponent.displayName}`);
+  for (const o of [bt, ...ovs]) o.ws.close();
+}
+
+// Teams 4v4, Chat Poll: 7 invites, all chats aggregate; plus the multi-channel chat simulator.
+{
+  const seven = pool.slice(0, 7);
+  const teamOf = (i) => (i < 3 ? 'a' : 'b');
+  const d = (await api('/api/duels', { format: 'teams', mode: 'poll', durationS: 60, question: 'Best crop?', options: ['Starfruit', 'Melon', 'Pumpkin'],
+    invites: seven.map((q, i) => ({ id: q.id, team: teamOf(i) })) })).duel;
+  check(d.channels.length === 8 && d.channels.filter((c) => c.side === 'a').length === 4, 'Teams 4v4 created (8 channels)');
+  const self = await asUser(seven[6].login);
+  for (const q of seven.slice(0, 6)) await api(`/api/duels/${d.id}/accept`, { channelId: q.id });
+  const last = (await api(`/api/duels/${d.id}/accept`, {}, self)).duel;
+  check(last.channels.every((c) => c.invite === 'host' || c.invite === 'accepted'), 'all 7 invitees accepted (6 demo + 1 own session)');
+  const b8 = openSocket(`/api/duels/${d.id}/ws`); await b8.ready;
+  const ovs = await overlaysFor(last.channels.map((c) => c.login));
+  await api(`/api/duels/${d.id}/start`, {});
+  check(!!(await toldAll(ovs, d.id)), 'all 8 overlays told about the 4v4');
+  await waitFor(() => b8.last('state')?.state.status === 'live', 9000);
+  for (const [i, c] of last.channels.entries()) await chatIn(c.login, [{ user: `q${i}_${RUN}`, text: `!${(i % 3) + 1}` }, { user: `q${i}b_${RUN}`, text: '!1' }]);
+  const st = await waitFor(() => { const q = b8.last('state')?.state; return q && q.a.voters === 8 && q.b.voters === 8 ? q : null; });
+  check(!!st && st.a.poll.reduce((t, n) => t + n, 0) === 8 && st.channels.every((c) => c.voters === 2) && st.a.poll.join() === sideOf(st, 'a').poll.join(),
+    `4v4 poll aggregates 8 chats: A voters=${st?.a.voters} ${st?.a.poll} · B voters=${st?.b.voters} ${st?.b.poll}`);
+  await api(`/api/duels/${d.id}/simulate`, { on: true });
+  const sim = await waitFor(() => { const q = b8.last('state')?.state; return q && q.channels.every((c) => c.voters > 3) ? q : null; }, 8000);
+  check(!!sim, `chat simulator drives all 8 channels (${b8.last('state')?.state.channels.map((c) => c.voters).join('/')})`);
+  await api(`/api/duels/${d.id}/cancel`, {});
+  check(!!(await waitFor(() => ovs.every((o) => o.msgs.some((m) => m.type === 'duel' && m.status === 'cancelled')))), '4v4 cancelled; every overlay cleared');
+  for (const o of [b8, ...ovs]) o.ws.close();
+}
+
+// Decliners and no-shows are dropped when the host starts.
+{
+  const [x, y, z] = [pool[8], pool[9], pool[10] ?? pool[1]];
+  const d = (await api('/api/duels', { format: 'teams', mode: 'tug', durationS: 20, invites: [{ id: x.id, team: 'b' }, { id: y.id, team: 'b' }, { id: z.id, team: 'a' }] })).duel;
+  await api(`/api/duels/${d.id}/decline`, { channelId: y.id });
+  const acc = (await api(`/api/duels/${d.id}/accept`, { channelId: x.id })).duel;
+  check(acc.status === 'accepted' && chOf(acc, z.id).invite === 'pending', 'startable with one invitee still pending');
+  const ovZ = openSocket(`/api/overlay/${z.login}/ws`); await ovZ.ready;
+  const started = (await api(`/api/duels/${d.id}/start`, {})).duel;
+  check(chOf(started, y.id).invite === 'declined' && chOf(started, z.id).invite === 'dropped' && started.sides.find((q) => q.key === 'b').channelIds.length === 1,
+    'start drops the pending invitee; decliner stays out');
+  const rz = await sleep(5600).then(() => chatIn(z.login, pullsFrom(3, 'dz')));
+  check(rz.counted === 0 && !ovZ.msgs.some((m) => m.type === 'duel' && m.duelId === d.id), 'dropped channel\'s chat and overlay are not part of the duel');
+  await api(`/api/duels/${d.id}/cancel`, {});
+  ovZ.ws.close();
+}
 
 // ---------- EventSub raid + verification ----------
 const rv = await sendEventSub('stream.online', { challenge: 'abc123', subscription: { type: 'stream.online' } }, { messageType: 'webhook_callback_verification' });

@@ -73,3 +73,84 @@
 .board.overlay .side-name { font-size: 15px; }
 .board.overlay .side-score { font-size: 28px; margin: 0 4px; }
 .board.overlay .clock { min-width: 96px; }
+
+/* ---------- Multi-channel duels: free-for-all lanes + team battles ---------- */
+:root { --c: #ffc94d; --d: #7dffb0; }
+.board { --ca: var(--a); --cb: var(--b); --cc: var(--c); --cd: var(--d); }
+.lane-a, .feed-item.a, .p-a { --col: var(--ca); }
+.lane-b, .feed-item.b, .p-b { --col: var(--cb); }
+.lane-c, .feed-item.c, .p-c { --col: var(--cc); }
+.lane-d, .feed-item.d, .p-d { --col: var(--cd); }
+.p-a, .p-b, .p-c, .p-d { background: var(--col); }
+.feed-item.c { background: rgba(255,201,77,.13); color: #ffe7b0; }
+.feed-item.d { background: rgba(125,255,176,.12); color: #c9ffe0; }
+.feed-item i { font-style: normal; opacity: .6; font-size: 10px; }
+.w-c { background: rgba(255,201,77,.14); color: var(--c); border: 1px solid rgba(255,201,77,.5); }
+.w-d { background: rgba(125,255,176,.12); color: var(--d); border: 1px solid rgba(125,255,176,.5); }
+.mode-tag { font-size: 11px; font-weight: 700; letter-spacing: .16em; color: var(--lime); }
+.question.left { text-align: left; margin-top: 4px; }
+.howto.center { justify-content: center; color: var(--muted); }
+.howto b { color: var(--text); }
+.crown { color: var(--lime); text-shadow: 0 0 12px rgba(200,255,77,.7); }
+
+.ffa-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ffa-head .clock { min-width: 96px; }
+.lanes { display: grid; gap: 10px; }
+.lane { display: grid; grid-template-columns: 30px auto minmax(110px, 170px) 1fr 64px; align-items: center; gap: 12px;
+  padding: 8px 12px; border-radius: 14px; background: rgba(0,0,0,.22); border: 1px solid var(--line); transition: border-color .3s, box-shadow .3s; }
+.lane.leading { border-color: color-mix(in srgb, var(--col) 70%, transparent); box-shadow: 0 0 24px -6px var(--col); }
+.lane.waiting { opacity: .5; }
+.lane-rank { font-size: 13px; font-weight: 700; color: var(--muted); text-align: center; }
+.lane-who { min-width: 0; }
+.lane-name { font: 700 15px var(--font-display); color: var(--col); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track { position: relative; height: 22px; border-radius: 11px; background: rgba(255,255,255,.06); overflow: visible; }
+.track-fill { position: absolute; left: 0; top: 0; bottom: 0; min-width: 22px; border-radius: 11px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--col) 25%, transparent), var(--col)); transition: width .4s cubic-bezier(.3,1.2,.5,1); }
+.runner { position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 0 14px var(--col); }
+.finish { position: absolute; right: -2px; top: -5px; bottom: -5px; width: 6px; border-radius: 2px;
+  background: repeating-linear-gradient(0deg, #fff 0 4px, #12091f 4px 8px); opacity: .85; }
+.lane-score { font: 800 28px var(--font-display); color: var(--col); text-align: right; font-variant-numeric: tabular-nums; text-shadow: 0 0 20px color-mix(in srgb, var(--col) 50%, transparent); }
+
+.team-badge { width: 44px; height: 44px; flex: none; border-radius: 14px; display: grid; place-items: center; font: 800 20px var(--font-display); color: #12091f; }
+.team-badge.a { background: var(--a); box-shadow: 0 0 22px rgba(68,225,255,.55); }
+.team-badge.b { background: var(--b); box-shadow: 0 0 22px rgba(255,79,163,.55); }
+.rosters { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.roster { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start; }
+.roster-a { --col: var(--a); } .roster-b { --col: var(--b); }
+.member { position: relative; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 10px; min-width: 0; overflow: hidden;
+  background: rgba(0,0,0,.24); border: 1px solid color-mix(in srgb, var(--col) 28%, transparent); }
+.member.mvp { border-color: color-mix(in srgb, var(--col) 80%, transparent); box-shadow: 0 0 16px -4px var(--col); }
+.member.waiting { opacity: .5; border-style: dashed; }
+.member.shade-1 { --tint: 82%; } .member.shade-2 { --tint: 66%; } .member.shade-3 { --tint: 52%; }
+.member-name { flex: 1; min-width: 0; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--col) var(--tint, 100%), #fff); }
+.member-score { font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.member-score i { font-style: normal; color: var(--muted); }
+.member-bar { position: absolute; left: 0; bottom: 0; height: 3px; background: color-mix(in srgb, var(--col) var(--tint, 100%), #fff); transition: width .4s ease; }
+.tops { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+.tops-label { font-size: 10px; letter-spacing: .16em; color: var(--dim); }
+.top { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.top-b { justify-content: flex-end; }
+.top-item { font-size: 12px; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.top-a .top-item { background: rgba(68,225,255,.12); color: #bff4ff; }
+.top-b .top-item { background: rgba(255,79,163,.12); color: #ffd0e7; }
+.top-item b { opacity: .6; } .top-item i { font-style: normal; opacity: .7; }
+
+.board.overlay.ffa, .board.overlay.teams { width: 900px; }
+.board.overlay .lane { padding: 6px 10px; grid-template-columns: 28px auto minmax(110px, 170px) 1fr 56px; }
+.board.overlay .lane-score { font-size: 24px; }
+.board.overlay.teams .side-name { font-size: 17px; }
+@media (max-width: 760px) {
+  .rosters, .roster { grid-template-columns: 1fr; }
+  .lane { grid-template-columns: 24px auto 1fr 48px; } .lane .track { grid-column: 1 / -1; }
+}
+.invites { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
+.invite-chip { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; border-radius: 999px; background: rgba(0,0,0,.25);
+  border: 1px solid color-mix(in srgb, var(--col) 45%, transparent); font-size: 13px; }
+.invite-chip b { color: var(--col); }
+.invite-chip .mono { font-size: 11px; color: var(--muted); padding-right: 6px; }
+.invite-chip.inv-declined, .invite-chip.inv-dropped { opacity: .45; text-decoration: line-through; }
+.invite-chip.inv-accepted .mono, .invite-chip.inv-host .mono { color: var(--lime); }
+.demo-send { display: inline-flex; gap: 4px; }
+.duel-room:has(.board.ffa), .duel-room:has(.board.teams) { max-width: 1080px; }
+.overlay-links.many { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }

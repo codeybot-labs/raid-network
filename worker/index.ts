@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { appUrl, duelStub, eventsubCallbackUrl, isDemo, overlayStub, type AppEnv, type Env } from './env';
-import type { ChannelRef, ChatMessage, DuelMode, GrowthResponse, Viewer } from '../shared/types';
+import { SIDE_KEYS, type ChannelRef, type ChatMessage, type DuelFormat, type DuelMode, type GrowthResponse, type Side, type Viewer } from '../shared/types';
 import { listStreams, streamReport } from './lib/growth';
 import { randomId } from './lib/crypto';
 import { DEMO_ME, allDemoLogins, demoFindStream, ensureDemoSeed } from './lib/demo';
@@ -140,35 +140,108 @@ app.post('/api/raids', async (c) => {
 
 // ----- Duels -----
 type DuelRow = { id: string; challenger_id: string; opponent_id: string; status: string };
+type DuelChannelRow = { duel_id: string; channel_id: string; login: string; display_name: string | null; side: string; status: string; score: number; voters: number };
 
+/** Duels I host or was invited to (newest first), each with its channel list and my invite status. */
 app.get('/api/duels', async (c) => {
   const v = requireViewer(c);
-  const rows = await c.env.DB.prepare(
-    'SELECT * FROM duels WHERE challenger_id = ?1 OR opponent_id = ?1 ORDER BY created_at DESC LIMIT 20').bind(v.id).all();
-  return c.json({ duels: rows.results });
+  const rows = (await c.env.DB.prepare(
+    `SELECT * FROM duels WHERE challenger_id = ?1 OR opponent_id = ?1 OR id IN (SELECT duel_id FROM duel_channels WHERE channel_id = ?1)
+     ORDER BY created_at DESC LIMIT 20`).bind(v.id).all<Record<string, unknown> & { id: string }>()).results;
+  const ids = rows.map((r) => r.id);
+  const chans = ids.length
+    ? (await c.env.DB.prepare(`SELECT * FROM duel_channels WHERE duel_id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at, rowid`).bind(...ids).all<DuelChannelRow>()).results
+    : [];
+  const duels = rows.map((r) => {
+    const channels = chans.filter((x) => x.duel_id === r.id).map((x) => ({
+      id: x.channel_id, login: x.login, displayName: x.display_name ?? x.login, side: x.side, invite: x.status, score: x.score, voters: x.voters }));
+    return { ...r, format: r.format ?? '1v1', channels, my_invite: channels.find((x) => x.id === v.id)?.invite ?? (r.challenger_id === v.id ? 'host' : null) };
+  });
+  return c.json({ duels });
 });
 
+const MAX_TEAM = 4;
+type InviteIn = { id?: string; login?: string; team?: 'a' | 'b' };
+
+/** Resolve a channel by Twitch id or login (demo: fake streamers). */
+async function resolveInvite(c: C, inv: InviteIn): Promise<ChannelRef | null> {
+  if (inv.id) return resolveChannel(c, String(inv.id));
+  const login = String(inv.login ?? '').trim().toLowerCase().replace(/^@/, '').replace(/^https?:\/\/(www\.)?twitch\.tv\//, '');
+  if (!/^[a-z0-9_]{2,25}$/.test(login)) return null;
+  if (isDemo(c.env)) {
+    const s = demoFindStream(login);
+    return s ? { id: s.id, login: s.login, displayName: s.displayName } : null;
+  }
+  const [u] = await getUsers(c.env, await appToken(c.env), { logins: [login] });
+  return u ? { id: u.id, login: u.login, displayName: u.display_name, avatarUrl: u.profile_image_url } : null;
+}
+
+/**
+ * Create a duel. 1v1 (legacy): { opponentId }. Multi: { format: 'ffa' | 'teams', invites: [{ id | login, team? }] }.
+ * ffa = host + 2-3 invitees, one lane each. teams = host on Team A plus 1-7 invitees, max 4 per team.
+ */
 app.post('/api/duels', async (c) => {
   const v = requireViewer(c);
-  const body = await c.req.json<{ opponentId: string; mode?: DuelMode; question?: string; options?: string[]; durationS?: number }>();
-  const opp = await resolveChannel(c, body.opponentId);
-  if (!opp) return bad(c, 'unknown opponent', 404);
-  if (opp.id === v.id) return bad(c, "you can't duel yourself");
+  const body = await c.req.json<{
+    opponentId?: string; format?: DuelFormat; invites?: InviteIn[]; mode?: DuelMode; question?: string; options?: string[];
+    durationS?: number; raceTarget?: number; teamNames?: string[]; autoAccept?: boolean;
+  }>();
+  const format: DuelFormat = body.format === 'ffa' || body.format === 'teams' ? body.format : '1v1';
+  const rawInvites: InviteIn[] = body.invites?.length ? body.invites.slice(0, 8) : body.opponentId ? [{ id: body.opponentId }] : [];
+  if (!rawInvites.length) return bad(c, 'invite at least one channel');
+  const invited: { channel: ChannelRef; side: Side }[] = [];
+  for (const inv of rawInvites) {
+    const ch = await resolveInvite(c, inv);
+    if (!ch) return bad(c, `unknown channel ${inv.login ?? inv.id ?? ''}`.trim(), 404);
+    if (ch.id === v.id) return bad(c, "you can't duel yourself");
+    if (invited.some((x) => x.channel.id === ch.id)) continue;
+    invited.push({ channel: ch, side: 'b' });
+  }
+  if (format === '1v1') {
+    if (invited.length !== 1) return bad(c, 'a 1v1 duel has exactly one opponent');
+  } else if (format === 'ffa') {
+    if (invited.length < 2 || invited.length > 3) return bad(c, 'a free-for-all needs 2-3 invited channels (3-4 lanes with you)');
+    invited.forEach((x, i) => (x.side = SIDE_KEYS[i + 1]));
+  } else {
+    // Team B by default, alternating A/B for any invite without an explicit team.
+    rawInvites.slice(0, invited.length).forEach((inv, i) => (invited[i].side = inv.team === 'a' ? 'a' : inv.team === 'b' ? 'b' : i % 2 === 0 ? 'b' : 'a'));
+    const nA = 1 + invited.filter((x) => x.side === 'a').length;
+    const nB = invited.filter((x) => x.side === 'b').length;
+    if (nB < 1) return bad(c, 'Team B needs at least one channel');
+    if (nA > MAX_TEAM || nB > MAX_TEAM) return bad(c, `teams are at most ${MAX_TEAM} channels each`);
+  }
   const mode: DuelMode = body.mode === 'poll' ? 'poll' : 'tug';
   const durationS = Math.min(300, Math.max(20, Math.round(body.durationS ?? 90)));
   const options = mode === 'poll' ? (body.options ?? []).map((o) => String(o).trim().slice(0, 40)).filter(Boolean).slice(0, 4) : [];
   if (mode === 'poll' && options.length < 2) return bad(c, 'a poll duel needs 2-4 options');
-  const question = String(body.question ?? (mode === 'tug' ? 'Tug of War: spam !pull for your streamer!' : '')).slice(0, 120);
+  const defaultQ = mode === 'poll' ? '' : format === 'ffa' ? 'Chat Race: spam !pull to push your streamer to the finish!'
+    : format === 'teams' ? 'Team Tug of War: every chat on your team pulls together!' : 'Tug of War: spam !pull for your streamer!';
+  const question = String(body.question ?? defaultQ).slice(0, 120);
+  // Race finish line: about 2 pulls per second of duel time unless the host picks one.
+  const raceTarget = format === 'ffa' && mode === 'tug' ? Math.min(2000, Math.max(20, Math.round(body.raceTarget ?? durationS * 2))) : 0;
+  const teamNames = format === 'teams'
+    ? [0, 1].map((i) => String(body.teamNames?.[i] ?? '').trim().slice(0, 24) || (i ? 'Team B' : 'Team A')) as [string, string] : undefined;
   const id = randomId(10);
-  await c.env.DB.prepare(
-    `INSERT INTO duels (id, challenger_id, challenger_login, challenger_name, opponent_id, opponent_login, opponent_name, mode, question, options, duration_s, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-  ).bind(id, v.id, v.login, v.displayName, opp.id, opp.login, opp.displayName, mode, question, JSON.stringify(options), durationS, Date.now()).run();
-  const state = await duelStub(c.env, id).init({
-    id, mode, question, options, durationS, demo: isDemo(c.env),
-    a: { id: v.id, login: v.login, displayName: v.displayName, avatarUrl: v.avatarUrl }, b: opp,
-  });
-  c.executionCtx.waitUntil(overlayStub(c.env, opp.login).toast(`${v.displayName} challenged you to a duel!`).catch(() => {}));
+  const now = Date.now();
+  const opp = invited[0].channel;
+  const host: ChannelRef = { id: v.id, login: v.login, displayName: v.displayName, avatarUrl: v.avatarUrl };
+  const chanStmt = c.env.DB.prepare(
+    'INSERT INTO duel_channels (duel_id, channel_id, login, display_name, side, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO duels (id, challenger_id, challenger_login, challenger_name, opponent_id, opponent_login, opponent_name, mode, question, options, duration_s, status, created_at, format, race_target)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+    ).bind(id, v.id, v.login, v.displayName, opp.id, opp.login, opp.displayName, mode, question, JSON.stringify(options), durationS, now, format, raceTarget),
+    chanStmt.bind(id, v.id, v.login, v.displayName, 'a', 'host', now),
+    ...invited.map((x, i) => chanStmt.bind(id, x.channel.id, x.channel.login, x.channel.displayName, x.side, 'pending', now + i + 1)),
+  ]);
+  const stub = duelStub(c.env, id);
+  let state = await stub.init({ id, format, mode, question, options, durationS, raceTarget, teamNames, demo: isDemo(c.env), a: host, invites: invited });
+  const label = format === 'ffa' ? `a ${invited.length + 1}-way free-for-all` : format === 'teams' ? 'a team battle' : 'a duel';
+  c.executionCtx.waitUntil(Promise.allSettled(invited.map((x) =>
+    overlayStub(c.env, x.channel.login).toast(`${v.displayName} invited you to ${label}!`))).then(() => {}));
+  // Demo: the fake streamers can't click Accept, so the host may have them all say yes at once.
+  if (isDemo(c.env) && body.autoAccept) state = await stub.respond(true);
   return c.json({ duel: state, inviteUrl: `${appUrl(c.env, c.req.raw)}/duel/${id}` });
 });
 
@@ -188,32 +261,41 @@ app.post('/api/duels/:id/:action{accept|decline|start|cancel|simulate}', async (
   const action = c.req.param('action');
   const row = await duelFor(c, id);
   if (!row) return bad(c, 'duel not found', 404);
-  const isA = row.challenger_id === v.id;
-  const isB = row.opponent_id === v.id;
   const demo = isDemo(c.env);
   const stub = duelStub(c.env, id);
+  const cur = await stub.getState();
+  if (!cur) return bad(c, 'duel not found', 404);
+  const mine = cur.channels.find((x) => x.id === v.id);
+  const isHost = cur.hostId === v.id;
+  const isActive = !!mine && (mine.invite === 'host' || mine.invite === 'accepted');
   try {
     switch (action) {
       case 'accept':
-      case 'decline':
-        // In demo mode the challenger may answer on behalf of the fake opponent.
-        if (!isB && !(demo && isA)) return bad(c, 'only the invited streamer can respond', 403);
-        return c.json({ duel: await stub.respond(action === 'accept') });
+      case 'decline': {
+        const accept = action === 'accept';
+        if (mine?.invite === 'pending') return c.json({ duel: await stub.respond(accept, [v.id]) });
+        // In demo mode the host may answer on behalf of the fake invitees ({ channelId } for one, or all pending).
+        if (demo && isHost) {
+          const { channelId } = await c.req.json<{ channelId?: string }>().catch(() => ({} as { channelId?: string }));
+          return c.json({ duel: await stub.respond(accept, channelId ? [channelId] : undefined) });
+        }
+        return bad(c, mine ? `your invite is ${mine.invite}` : 'only invited streamers can respond', 403);
+      }
       case 'start': {
-        if (!isA && !isB) return bad(c, 'not your duel', 403);
+        // 1v1: either streamer may start (as before). Multi-channel duels: the host starts.
+        if (!(isHost || (cur.format === '1v1' && isActive))) return bad(c, cur.format === '1v1' ? 'not your duel' : 'only the host can start this duel', 403);
         // One running duel per channel: the overlay can only show one board.
-        const cur = await stub.getState();
-        for (const side of cur ? [cur.a, cur.b] : []) {
-          const other = await overlayStub(c.env, side.login).getActiveDuel();
+        for (const ch of cur.channels.filter((x) => x.invite === 'host' || x.invite === 'accepted')) {
+          const other = await overlayStub(c.env, ch.login).getActiveDuel();
           if (other && other !== id) {
             const o = await duelStub(c.env, other).getState();
-            if (o && ['countdown', 'live'].includes(o.status)) return bad(c, `${side.displayName} is already in a running duel`, 409);
+            if (o && ['countdown', 'live'].includes(o.status)) return bad(c, `${ch.displayName} is already in a running duel`, 409);
           }
         }
         return c.json({ duel: await stub.start() });
       }
       case 'cancel':
-        if (!isA && !isB) return bad(c, 'not your duel', 403);
+        if (!isHost && !isActive) return bad(c, 'not your duel', 403);
         return c.json({ duel: await stub.cancel() });
       case 'simulate': {
         if (!demo) return bad(c, 'simulator is demo-only', 403);

@@ -73,6 +73,8 @@ export interface RaidGraph {
 }
 
 export type DuelMode = 'tug' | 'poll';
+/** 1v1: two channels. ffa: 3-4 channels, one lane each. teams: Team A vs Team B, up to 4 channels per team. */
+export type DuelFormat = '1v1' | 'ffa' | 'teams';
 export type DuelStatus =
   | 'pending'
   | 'accepted'
@@ -81,7 +83,11 @@ export type DuelStatus =
   | 'finished'
   | 'declined'
   | 'cancelled';
-export type Side = 'a' | 'b';
+/** Side key. 1v1 and teams use a/b; free-for-all lanes are a-d (host is always a). */
+export type Side = 'a' | 'b' | 'c' | 'd';
+export const SIDE_KEYS: Side[] = ['a', 'b', 'c', 'd'];
+/** host = created the duel; dropped = still pending when the host started (removed from the board). */
+export type InviteStatus = 'host' | 'pending' | 'accepted' | 'declined' | 'dropped';
 
 export interface DuelSide extends ChannelRef {
   score: number; // tug: counted pulls; poll: voters
@@ -89,26 +95,52 @@ export interface DuelSide extends ChannelRef {
   poll: number[]; // per-option counts (poll mode)
 }
 
+/** One channel taking part in a duel. Its chat counts for `side`. */
+export interface DuelChannel extends DuelSide {
+  side: Side;
+  invite: InviteStatus;
+}
+
+/** Aggregated totals for one side (a channel in 1v1/ffa, a whole team in teams). */
+export interface DuelSideState {
+  key: Side;
+  name: string;
+  score: number;
+  voters: number;
+  poll: number[];
+  channelIds: string[]; // active (host/accepted) channels on this side
+}
+
+export interface TopChatter { side: Side; login: string; channelLogin: string; count: number }
+
 export interface FeedItem {
   side: Side;
   login: string;
   text: string;
   at: number;
+  channel?: string; // channel login the message came from (multi-channel duels)
 }
 
 export interface DuelState {
   id: string;
+  format: DuelFormat;
   mode: DuelMode;
   status: DuelStatus;
   question: string;
   options: string[];
   durationS: number;
+  raceTarget: number; // ffa tug: pulls to reach the finish line (0 = none)
   createdAt: number;
   countdownEndsAt?: number;
   endsAt?: number;
   endedAt?: number;
-  a: DuelSide; // challenger
-  b: DuelSide; // opponent
+  hostId: string;
+  channels: DuelChannel[]; // every invited channel, incl. declined/dropped
+  sides: DuelSideState[]; // sides with at least one active channel, in key order
+  top: TopChatter[]; // top chatters per side (tug: pulls), refreshed on every broadcast
+  /** Back-compat mirrors of sides a and b (in 1v1 these are exactly the two channels). */
+  a: DuelSide; // challenger / Team A / lane A
+  b: DuelSide; // opponent / Team B / lane B
   winner?: Side | 'tie';
   feed: FeedItem[];
   simulate: boolean;
@@ -182,7 +214,7 @@ export interface GrowthReport {
   raidsIn: { from: ChannelRef; viewers: number; at: number }[];
   raidsOut: { to: ChannelRef; viewers: number; at: number }[];
   clips: ClipInfo[];
-  duels: { id: string; opponent: ChannelRef; mode: string; result: 'win' | 'loss' | 'tie'; myScore: number; theirScore: number; at: number }[];
+  duels: { id: string; opponent: ChannelRef; format: DuelFormat; mode: string; result: 'win' | 'loss' | 'tie'; myScore: number; theirScore: number; at: number }[];
   newChatterList: { login: string; messages: number }[];
   topChatters: { login: string; messages: number; isNew: boolean }[];
   returningChatters: number;

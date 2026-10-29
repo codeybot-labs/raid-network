@@ -1,5 +1,5 @@
 import { isDemo, type Env } from '../env';
-import type { ChannelRef, ClipInfo, GrowthReport, StreamSummary, TimelinePoint } from '../../shared/types';
+import type { ChannelRef, ClipInfo, DuelFormat, GrowthReport, StreamSummary, TimelinePoint } from '../../shared/types';
 import { fakeChatter } from '../durable/chat';
 import { welcomeText } from './chatbot';
 import { getClips } from './helix';
@@ -28,6 +28,31 @@ export async function listStreams(env: Env, channelId: string, limit = 12): Prom
   return rows.results.map(toSummary);
 }
 
+/** One finished duel from this channel's point of view (1v1, free-for-all or teams). */
+function duelResult(d: Record<string, any>, ch: string): GrowthReport['duels'][number] {
+  const format: DuelFormat = d.format ?? '1v1';
+  const mySide: string = d.my_side ?? (d.challenger_id === ch ? 'a' : 'b');
+  const results: { key: string; name: string; score: number }[] | null = d.results ? JSON.parse(d.results) : null;
+  const others: { id: string; login: string; name: string | null; side: string }[] = d.others ? JSON.parse(d.others) : [];
+  const scoreOf = (k: string) => results?.find((r) => r.key === k)?.score ?? (k === 'a' ? d.score_a : k === 'b' ? d.score_b : 0);
+  const myScore = scoreOf(mySide);
+  const rivalKeys = results ? results.map((r) => r.key).filter((k) => k !== mySide) : [mySide === 'a' ? 'b' : 'a'];
+  const theirScore = Math.max(0, ...rivalKeys.map(scoreOf));
+  const result = d.winner === 'tie' ? 'tie' as const : d.winner === mySide ? 'win' as const : 'loss' as const;
+  let opponent: ChannelRef;
+  if (format === '1v1' || !others.length) {
+    opponent = d.challenger_id === ch
+      ? { id: d.opponent_id, login: d.opponent_login, displayName: d.opponent_name ?? d.opponent_login }
+      : { id: d.challenger_id, login: d.challenger_login, displayName: d.challenger_name ?? d.challenger_login };
+  } else {
+    const rivals = format === 'teams' ? others.filter((o) => o.side !== mySide) : others;
+    const lead = rivals[0] ?? others[0];
+    const name = (o: typeof lead) => o.name ?? o.login;
+    opponent = { id: lead.id, login: lead.login, displayName: rivals.length > 1 ? `${name(lead)} +${rivals.length - 1}` : name(lead) };
+  }
+  return { id: d.id, opponent, format, mode: d.mode, result, myScore, theirScore, at: d.ended_at };
+}
+
 export async function streamReport(env: Env, streamId: string): Promise<GrowthReport | null> {
   const now = Date.now();
   const s = await env.DB.prepare(`${SUMMARY_SQL} WHERE s.id = ?1`).bind(streamId, now).first<SummaryRow>();
@@ -39,7 +64,12 @@ export async function streamReport(env: Env, streamId: string): Promise<GrowthRe
     env.DB.prepare('SELECT from_id, from_login, from_name, viewers, created_at FROM raids WHERE to_id = ? AND created_at BETWEEN ? AND ? ORDER BY created_at').bind(ch, from, to),
     env.DB.prepare('SELECT to_id, to_login, to_name, viewers, created_at FROM raids WHERE from_id = ? AND created_at BETWEEN ? AND ? ORDER BY created_at').bind(ch, from, to),
     env.DB.prepare('SELECT * FROM clips WHERE stream_id = ?1 OR (stream_id IS NULL AND channel_id = ?2 AND created_at BETWEEN ?3 AND ?4) ORDER BY score DESC, created_at DESC LIMIT 20').bind(s.id, ch, from, to),
-    env.DB.prepare("SELECT * FROM duels WHERE (challenger_id = ?1 OR opponent_id = ?1) AND status = 'finished' AND ended_at BETWEEN ?2 AND ?3 ORDER BY ended_at").bind(ch, from, to),
+    env.DB.prepare(`SELECT d.*, dc.side AS my_side,
+      (SELECT json_group_array(json_object('id', o.channel_id, 'login', o.login, 'name', o.display_name, 'side', o.side))
+         FROM duel_channels o WHERE o.duel_id = d.id AND o.channel_id != ?1 AND o.status IN ('host', 'accepted')) AS others
+      FROM duels d LEFT JOIN duel_channels dc ON dc.duel_id = d.id AND dc.channel_id = ?1
+      WHERE (d.challenger_id = ?1 OR d.opponent_id = ?1 OR dc.channel_id IS NOT NULL) AND d.status = 'finished' AND d.ended_at BETWEEN ?2 AND ?3
+      ORDER BY d.ended_at`).bind(ch, from, to),
     env.DB.prepare(`SELECT c.login, sc.messages FROM chatters c JOIN stream_chatters sc ON sc.stream_id = c.first_stream_id AND sc.user_id = c.user_id
       WHERE c.channel_id = ? AND c.first_stream_id = ? ORDER BY sc.messages DESC LIMIT 16`).bind(ch, s.id),
     env.DB.prepare(`SELECT sc.login, sc.messages, (c.first_stream_id = sc.stream_id) AS is_new FROM stream_chatters sc
@@ -56,14 +86,7 @@ export async function streamReport(env: Env, streamId: string): Promise<GrowthRe
     raidsIn: (rin.results as R[]).map((r) => ({ from: { id: r.from_id, login: r.from_login, displayName: r.from_name ?? r.from_login }, viewers: r.viewers, at: r.created_at })),
     raidsOut: (rout.results as R[]).map((r) => ({ to: { id: r.to_id, login: r.to_login, displayName: r.to_name ?? r.to_login }, viewers: r.viewers, at: r.created_at })),
     clips: (clips.results as R[]).map(rowToClip),
-    duels: (duels.results as R[]).map((d) => {
-      const mine = d.challenger_id === ch;
-      const opponent: ChannelRef = mine
-        ? { id: d.opponent_id, login: d.opponent_login, displayName: d.opponent_name ?? d.opponent_login }
-        : { id: d.challenger_id, login: d.challenger_login, displayName: d.challenger_name ?? d.challenger_login };
-      const result = d.winner === 'tie' ? 'tie' as const : (d.winner === 'a') === mine ? 'win' as const : 'loss' as const;
-      return { id: d.id, opponent, mode: d.mode, result, myScore: mine ? d.score_a : d.score_b, theirScore: mine ? d.score_b : d.score_a, at: d.ended_at };
-    }),
+    duels: (duels.results as R[]).map((d) => duelResult(d, ch)),
     newChatterList: (newList.results as R[]).map((r) => ({ login: r.login, messages: r.messages })),
     topChatters: (top.results as R[]).map((r) => ({ login: r.login, messages: r.messages, isNew: !!r.is_new })),
     returningChatters: Math.max(0, s.chatters - s.new_chatters),

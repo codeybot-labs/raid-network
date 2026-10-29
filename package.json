@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "astro build",
-    "dev": "npm run build && npm run db:migrate:local && wrangler dev --var DEMO_MODE:true --test-scheduled",
+    "dev": "npm run build && npm run db:migrate:local && wrangler dev --var DEMO_MODE:true --var EVENTSUB_SECRET:demo-eventsub-secret --test-scheduled",
     "dev:live": "bash scripts/dev-live.sh",
     "dev:web": "astro dev",
     "typecheck": "tsc -p worker/tsconfig.json --noEmit && astro check",

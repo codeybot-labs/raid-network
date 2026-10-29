@@ -40,3 +40,19 @@
 .rm-node { cursor: grab; }
 .rm-node:active { cursor: grabbing; }
 .rm-label { font: 600 11px var(--font-body); fill: #d9d1f5; paint-order: stroke; stroke: #0b0716; stroke-width: 4px; }
+.vs .c { color: var(--c, #ffc94d); } .vs .d { color: var(--d, #7dffb0); }
+.vs .pend { opacity: .5; font-style: italic; }
+.duel-modal { width: min(580px, 100%); }
+.duel-modal .panel-body { max-height: 70vh; overflow: auto; }
+.picks { display: grid; gap: 6px; }
+.pick { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); }
+.pick b { flex: 1; }
+.pick.you b { color: var(--a); }
+.pick-add { display: flex; gap: 6px; flex-wrap: wrap; }
+.pick-add select { flex: 1 1 220px; }
+.pick-add input { flex: 1 1 140px; width: auto; }
+.seg.mini button { padding: 2px 10px; font-size: 12px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+label.check { display: flex; align-items: center; gap: 8px; flex-direction: row; }
+label.check input { width: auto; }
+.matches-head { gap: 12px; }
