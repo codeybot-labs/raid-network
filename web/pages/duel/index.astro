@@ -1,0 +1,8 @@
+---
+import Base from '../../layouts/Base.astro';
+import DuelRoom from '../../components/DuelRoom';
+---
+<Base title="Duel · Raid Network">
+  <a slot="right" class="btn sm" href="/dashboard/">← Dashboard</a>
+  <DuelRoom client:only="solid-js" />
+</Base>

@@ -1,0 +1,51 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "raid-network",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+
+  // Astro builds static files into ./dist; the Worker handles API/auth/webhooks
+  // and rewrites dynamic page routes (/overlay/:channel, /duel/:id) to their HTML shells.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*", "/auth/*", "/webhooks/*", "/overlay/*", "/duel/*"]
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "OVERLAY", "class_name": "OverlayDO" },
+      { "name": "DUEL", "class_name": "DuelDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OverlayDO", "DuelDO"] }],
+
+  // Replace the ids after running `npx wrangler d1 create raid-network` and
+  // `npx wrangler kv namespace create KV` (see README). Placeholders work for local dev.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "raid-network",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [{ "binding": "KV", "id": "00000000000000000000000000000000" }],
+
+  // Refresh the live-streams cache for tracked games every 10 minutes.
+  "triggers": { "crons": ["*/10 * * * *"] },
+
+  "vars": {
+    // "true" = fake streamers + chat simulator, no Twitch calls. `npm run dev` forces it on.
+    "DEMO_MODE": "false",
+    "APP_URL": "http://localhost:8787",
+    // Comma-separated Twitch game ids always cached by the cron, in addition to signed-in users' games.
+    "TRACKED_GAME_IDS": "",
+    // Helix pages (100 streams each) fetched per game per cron run. Small streamers sit at the tail.
+    "MAX_STREAM_PAGES": "10"
+  },
+
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

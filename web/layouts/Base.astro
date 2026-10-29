@@ -1,0 +1,39 @@
+---
+import '../styles/global.css';
+import Logo from '../components/Logo.astro';
+interface Props { title?: string; active?: string; bare?: boolean }
+const { title = 'Raid Network', active = '', bare = false } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+    <meta name="description" content="Find raid partners your size, see your raid network, and duel other streamers' chats live." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  </head>
+  <body class={bare ? 'bare' : 'app'}>
+    {!bare && (
+      <header class="topbar">
+        <div class="wrap">
+          <a class="brand" href="/"><Logo /> Raid Network <span class="tag">BETA</span></a>
+          <nav class="nav">
+            <a href="/dashboard/" class={active === 'dashboard' ? 'active' : ''}>Dashboard</a>
+            <a href="/dashboard/#network" class={active === 'network' ? 'active' : ''}>Network</a>
+            <a href="/growth/" class={active === 'growth' ? 'active' : ''}>Growth</a>
+          </nav>
+          <div class="spacer"></div>
+          <slot name="right" />
+        </div>
+      </header>
+    )}
+    <slot />
+    {!bare && (
+      <footer class="foot"><div class="wrap">Raid Network · built on Cloudflare Workers · not affiliated with Twitch</div></footer>
+    )}
+  </body>
+</html>

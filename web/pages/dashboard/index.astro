@@ -1,0 +1,8 @@
+---
+import Base from '../../layouts/Base.astro';
+import Dashboard from '../../components/Dashboard';
+---
+<Base title="Dashboard · Raid Network" active="dashboard">
+  <a slot="right" class="btn sm ghost" href="/auth/logout">Sign out</a>
+  <Dashboard client:only="solid-js" />
+</Base>

@@ -1,0 +1,10 @@
+---
+import Base from '../../layouts/Base.astro';
+import Overlay from '../../components/Overlay';
+---
+<Base title="Raid Network overlay" bare>
+  <Overlay client:only="solid-js" />
+</Base>
+<style is:global>
+  html, body.bare { background: transparent !important; overflow: hidden; }
+</style>

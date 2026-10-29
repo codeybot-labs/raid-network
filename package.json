@@ -1,0 +1,30 @@
+{
+  "name": "raid-network",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Raid Network: find raid partners, map your raid network, and duel other streamers' chats. Cloudflare Workers + Astro + SolidJS.",
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "dev": "npm run build && npm run db:migrate:local && wrangler dev --var DEMO_MODE:true --test-scheduled",
+    "dev:live": "npm run build && npm run db:migrate:local && wrangler dev --test-scheduled",
+    "dev:web": "astro dev",
+    "typecheck": "tsc -p worker/tsconfig.json --noEmit && astro check",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "smoke": "node scripts/smoke.mjs",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@astrojs/solid-js": "^7.1.2",
+    "astro": "^7.4.4",
+    "hono": "^4.13.14",
+    "solid-js": "^1.9.17"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@cloudflare/workers-types": "^5.20261029.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.155.0"
+  }
+}

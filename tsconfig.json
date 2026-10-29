@@ -1,0 +1,10 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": []
+  },
+  "include": [".astro/types.d.ts", "web/**/*", "shared/**/*"],
+  "exclude": ["dist", "worker", "node_modules"]
+}
