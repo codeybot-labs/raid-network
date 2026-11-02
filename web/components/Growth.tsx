@@ -140,10 +140,10 @@ function Report(p: { r: GrowthReport }) {
           <CardContent class="list pt-4">
             <Show when={r().raidsIn.length + r().raidsOut.length} fallback={<div class="dim">No raids this stream.</div>}>
               <For each={r().raidsIn}>{(x) => (
-                <div class="row"><Avatar name={x.from.displayName} size={34} /><div class="grow"><b>{x.from.displayName}</b> raided you<div class="dim small">{fmtTime(x.at)}</div></div><Badge variant="success">+{x.viewers}</Badge></div>
+                <div class="row"><Avatar name={x.from.displayName} size={34} /><div class="grow"><b>{x.from.displayName}</b> {x.confirmed ? 'raided you' : 'started a raid to you'}<div class="dim small">{fmtTime(x.at)} · {x.confirmed ? 'Confirmed by Twitch' : 'Awaiting Twitch confirmation'}</div></div><Badge variant={x.confirmed ? 'success' : 'muted'}>+{x.viewers}</Badge></div>
               )}</For>
               <For each={r().raidsOut}>{(x) => (
-                <div class="row"><Avatar name={x.to.displayName} size={34} /><div class="grow">You raided <b>{x.to.displayName}</b><div class="dim small">{fmtTime(x.at)}</div></div><Badge variant="muted">→ {x.viewers}</Badge></div>
+                <div class="row"><Avatar name={x.to.displayName} size={34} /><div class="grow">You started a raid to <b>{x.to.displayName}</b><div class="dim small">{fmtTime(x.at)} · {x.confirmed ? 'Confirmed by Twitch' : 'Countdown started · awaiting Twitch confirmation'}</div></div><Badge variant={x.confirmed ? 'success' : 'muted'}>→ {x.viewers}</Badge></div>
               )}</For>
             </Show>
           </CardContent>

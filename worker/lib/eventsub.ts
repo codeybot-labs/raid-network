@@ -78,11 +78,18 @@ export async function handleEventSub(env: Env, req: Request, ctx: { waitUntil(p:
           ).bind(e.from_broadcaster_user_id, e.from_broadcaster_user_login, e.from_broadcaster_user_name,
             e.to_broadcaster_user_id, e.to_broadcaster_user_login, e.to_broadcaster_user_name, e.viewers, Date.now()).run();
         }
-        // Raids *out* need no DO call: the growth page reads them from D1 by time window.
+        // A destination subscription confirms the handoff and owns the welcome overlay.
+        // A source subscription records the outgoing raid but does not claim completion.
         if (payload.subscription.condition.to_broadcaster_user_id) {
           await overlayStub(env, e.to_broadcaster_user_login).raid(
             { id: e.from_broadcaster_user_id, login: e.from_broadcaster_user_login, displayName: e.from_broadcaster_user_name }, e.viewers,
             { id: e.to_broadcaster_user_id, login: e.to_broadcaster_user_login, displayName: e.to_broadcaster_user_name });
+        } else if (!recent) {
+          await env.DB.prepare(
+            `INSERT INTO raids (from_id, from_login, from_name, to_id, to_login, to_name, viewers, source, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'button', ?)`)
+            .bind(e.from_broadcaster_user_id, e.from_broadcaster_user_login, e.from_broadcaster_user_name,
+              e.to_broadcaster_user_id, e.to_broadcaster_user_login, e.to_broadcaster_user_name, e.viewers, Date.now()).run();
         }
         break;
       }

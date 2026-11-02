@@ -224,8 +224,8 @@ export interface GrowthReport {
   durationMs: number;
   live: boolean;
   timeline: TimelinePoint[];
-  raidsIn: { from: ChannelRef; viewers: number; at: number }[];
-  raidsOut: { to: ChannelRef; viewers: number; at: number }[];
+  raidsIn: { from: ChannelRef; viewers: number; at: number; confirmed: boolean }[];
+  raidsOut: { to: ChannelRef; viewers: number; at: number; confirmed: boolean }[];
   clips: ClipInfo[];
   duels: { id: string; opponent: ChannelRef; format: DuelFormat; mode: string; result: 'win' | 'loss' | 'tie'; myScore: number; theirScore: number; at: number }[];
   newChatterList: { login: string; messages: number }[];

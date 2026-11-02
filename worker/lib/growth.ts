@@ -61,8 +61,8 @@ export async function streamReport(env: Env, streamId: string): Promise<GrowthRe
   const to = s.ended_at ?? now;
   const ch = s.channel_id;
   const [rin, rout, clips, duels, newList, top, bots] = await env.DB.batch([
-    env.DB.prepare('SELECT from_id, from_login, from_name, viewers, created_at FROM raids WHERE to_id = ? AND created_at BETWEEN ? AND ? ORDER BY created_at').bind(ch, from, to),
-    env.DB.prepare('SELECT to_id, to_login, to_name, viewers, created_at FROM raids WHERE from_id = ? AND created_at BETWEEN ? AND ? ORDER BY created_at').bind(ch, from, to),
+    env.DB.prepare('SELECT from_id, from_login, from_name, viewers, created_at, source FROM raids WHERE to_id = ? AND created_at BETWEEN ? AND ? ORDER BY created_at').bind(ch, from, to),
+    env.DB.prepare('SELECT to_id, to_login, to_name, viewers, created_at, source FROM raids WHERE from_id = ? AND created_at BETWEEN ? AND ? ORDER BY created_at').bind(ch, from, to),
     env.DB.prepare('SELECT * FROM clips WHERE stream_id = ?1 OR (stream_id IS NULL AND channel_id = ?2 AND created_at BETWEEN ?3 AND ?4) ORDER BY score DESC, created_at DESC LIMIT 20').bind(s.id, ch, from, to),
     env.DB.prepare(`SELECT d.*, dc.side AS my_side,
       (SELECT json_group_array(json_object('id', o.channel_id, 'login', o.login, 'name', o.display_name, 'side', o.side))
@@ -83,8 +83,8 @@ export async function streamReport(env: Env, streamId: string): Promise<GrowthRe
     durationMs: to - from,
     live: s.ended_at === null,
     timeline,
-    raidsIn: (rin.results as R[]).map((r) => ({ from: { id: r.from_id, login: r.from_login, displayName: r.from_name ?? r.from_login }, viewers: r.viewers, at: r.created_at })),
-    raidsOut: (rout.results as R[]).map((r) => ({ to: { id: r.to_id, login: r.to_login, displayName: r.to_name ?? r.to_login }, viewers: r.viewers, at: r.created_at })),
+    raidsIn: (rin.results as R[]).map((r) => ({ from: { id: r.from_id, login: r.from_login, displayName: r.from_name ?? r.from_login }, viewers: r.viewers, at: r.created_at, confirmed: r.source === 'eventsub' || r.source === 'demo' || r.source === 'seed' })),
+    raidsOut: (rout.results as R[]).map((r) => ({ to: { id: r.to_id, login: r.to_login, displayName: r.to_name ?? r.to_login }, viewers: r.viewers, at: r.created_at, confirmed: r.source === 'eventsub' || r.source === 'demo' || r.source === 'seed' })),
     clips: (clips.results as R[]).map(rowToClip),
     duels: (duels.results as R[]).map((d) => duelResult(d, ch)),
     newChatterList: (newList.results as R[]).map((r) => ({ login: r.login, messages: r.messages })),

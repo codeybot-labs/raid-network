@@ -174,7 +174,7 @@ export default function Dashboard() {
           </section>
           <Show when={!mm.loading} fallback={<div class="match-grid"><For each={[1, 2, 3, 4, 5, 6]}>{() => <Skeleton class="h-[300px]" />}</For></div>}>
             <Show when={mm.error}><Card class="empty">Couldn't load matches: {String(mm.error?.message ?? mm.error)}</Card></Show>
-            <Show when={mm() && mm()!.matches.length === 0}><Card class="empty">Nobody in your size range is live in this category right now. Check back in a few minutes.</Card></Show>
+            <Show when={mm() && mm()!.matches.length === 0}><Card class="empty"><h3>No live partners match yet</h3><p class="muted">We look for streamers in this category with a similar audience. Try again later, or browse the raid network for creators to connect with between streams.</p><Button variant="outline" onClick={() => document.querySelector('#network')?.scrollIntoView({ behavior: 'smooth' })}>Explore the raid network <ArrowRight /></Button></Card></Show>
             <div class="match-grid">
               <For each={mm()?.matches}>
                 {(m, i) => <MatchCard m={m} rank={i() + 1} base={mm()!.baseViewers} onRaid={() => setRaidTarget(m)} onDuel={() => setDuelTarget({ m })}
@@ -226,7 +226,7 @@ function MatchCard(props: { m: Match; rank: number; base: number; onRaid: () => 
           <a href={`https://twitch.tv/${s().login}`} target="_blank" rel="noreferrer"><h3>{s().displayName}</h3></a>
           <Badge variant="live">{fmtNum(s().viewerCount)} viewers</Badge>
         </div>
-        <Tooltip content="Match score: size fit, shared tags, language and raid history">
+        <Tooltip content="Higher scores mean a closer audience size, shared tags or language, and useful raid history. It is a guide, not a guarantee of fit.">
           <div class="score">{props.m.score}</div>
         </Tooltip>
       </div>
@@ -240,7 +240,7 @@ function MatchCard(props: { m: Match; rank: number; base: number; onRaid: () => 
       <Show when={props.pitch !== null}>
         <p class="pitch" classList={{ loading: props.pitch === undefined }}><Sparkles class="size-4 shrink-0 text-blue" /><span>{props.pitch ?? 'Writing a collab pitch…'}</span></p>
       </Show>
-      <ul class="reasons"><For each={props.m.reasons}>{(r) => <li>{r}</li>}</For></ul>
+      <ul class="reasons"><For each={props.m.reasons}>{(r) => <li>{r}</li></For></ul>
       <div class="tags"><For each={s().tags.slice(0, 4)}>{(t) => <Badge variant="muted">{t}</Badge>}</For></div>
       <div class="actions">
         <Button onClick={props.onRaid}><ArrowRight /> Raid</Button>
@@ -255,8 +255,8 @@ function RaidModal(props: { m: Match; onClose: () => void; onDone: () => void })
   const go = async () => {
     setBusy(true);
     try {
-      const r = await api<{ note: string }>('/api/raids', { json: { toId: props.m.stream.id } });
-      toast(r.note);
+      const r = await api<{ note: string; demo: boolean }>('/api/raids', { json: { toId: props.m.stream.id } });
+      toast(r.demo ? r.note : 'Raid countdown started. Twitch will confirm when the handoff completes.');
       props.onDone();
     } catch (e) { toast((e as Error).message, true); setBusy(false); }
   };
