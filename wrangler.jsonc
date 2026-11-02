@@ -28,11 +28,11 @@
     {
       "binding": "DB",
       "database_name": "raid-network",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "d043204c-9633-4fbb-acef-15007121b417",
       "migrations_dir": "migrations"
     }
   ],
-  "kv_namespaces": [{ "binding": "KV", "id": "00000000000000000000000000000000" }],
+  "kv_namespaces": [{ "binding": "KV", "id": "99a90aef1a0d4554abca5b511cf297b8" }],
 
   // Refresh the live-streams cache for tracked games every 10 minutes.
   "triggers": { "crons": ["*/10 * * * *"] },
