@@ -240,7 +240,7 @@ function MatchCard(props: { m: Match; rank: number; base: number; onRaid: () => 
       <Show when={props.pitch !== null}>
         <p class="pitch" classList={{ loading: props.pitch === undefined }}><Sparkles class="size-4 shrink-0 text-blue" /><span>{props.pitch ?? 'Writing a collab pitch…'}</span></p>
       </Show>
-      <ul class="reasons"><For each={props.m.reasons}>{(r) => <li>{r}</li></For></ul>
+      <ul class="reasons"><For each={props.m.reasons}>{(r) => <li>{r}</li>}</For></ul>
       <div class="tags"><For each={s().tags.slice(0, 4)}>{(t) => <Badge variant="muted">{t}</Badge>}</For></div>
       <div class="actions">
         <Button onClick={props.onRaid}><ArrowRight /> Raid</Button>
