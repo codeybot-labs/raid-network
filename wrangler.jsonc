@@ -40,7 +40,7 @@
   "vars": {
     // "true" = fake streamers + chat simulator, no Twitch calls. `npm run dev` forces it on.
     "DEMO_MODE": "false",
-    "APP_URL": "http://localhost:8787",
+    "APP_URL": "https://raid-network.sushmitsarmah.workers.dev",
     // Comma-separated Twitch game ids always cached by the cron, in addition to signed-in users' games.
     "TRACKED_GAME_IDS": "",
     // Helix pages (100 streams each) fetched per game per cron run. Small streamers sit at the tail.
